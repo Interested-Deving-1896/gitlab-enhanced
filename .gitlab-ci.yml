@@ -1,8 +1,15 @@
 # CI pipeline for gitlab-enhanced.
 #
-# Jobs run on GitLab.com shared runners (Docker executor).
-# To migrate to a self-hosted Incus runner, add a runner with tag "incus"
-# and replace the `image:` keys with `tags: [incus]` + a bare executor.
+# Current executor: GitLab.com shared runners (Docker).
+# Future executor:  self-hosted Incus runner (custom executor).
+#
+# Migration path — when the Incus runner is ready:
+#   1. Run: sudo bash runtime/incus/runner/install.sh   (on the runner host)
+#   2. Register the runner with tags: incus, self-hosted
+#   3. Copy runtime/incus/runner/config.toml to /etc/gitlab-runner/config.toml
+#   4. The `tags` key below already routes tagged jobs to the Incus runner.
+#      The `image:` keys are ignored by the Incus executor but kept as
+#      documentation of the intended environment.
 #
 # Triggers: every push to any branch, and all MR pipelines.
 
@@ -19,7 +26,13 @@ stages:
 # ── Shared config ─────────────────────────────────────────────────────────────
 
 .go-base:
+  # image: used by shared runners; ignored by the Incus executor.
+  # The Incus executor uses INCUS_IMAGE (default: ubuntu:24.04) with Go
+  # pre-installed via cloud-init or a custom image.
   image: golang:1.24-bookworm
+  tags:
+    - incus        # routes to self-hosted Incus runner when registered
+    - self-hosted  # falls back to shared runners when no Incus runner is available
   variables:
     GOPATH: /go
     GOFLAGS: "-mod=readonly"
@@ -40,6 +53,9 @@ go:vet:
 
 shellcheck:
   image: koalaman/shellcheck-alpine:stable
+  tags:
+    - incus
+    - self-hosted
   stage: lint
   script:
     - shellcheck
@@ -48,9 +64,17 @@ shellcheck:
         scripts/subtree-sync.sh
         .devcontainer/on-create.sh
         .devcontainer/post-start.sh
+        runtime/incus/runner/config.sh
+        runtime/incus/runner/prepare.sh
+        runtime/incus/runner/run.sh
+        runtime/incus/runner/cleanup.sh
+        runtime/incus/runner/install.sh
 
 yamllint:
   image: pipelinecomponents/yamllint:latest
+  tags:
+    - incus
+    - self-hosted
   stage: lint
   script:
     # Lint all YAML files, excluding submodule/subtree directories and
