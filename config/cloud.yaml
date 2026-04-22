@@ -3,9 +3,17 @@
 # Do not commit secrets here — use environment variables referenced below.
 
 storage:
-  backend: s3
+  backend: cloud
+  provider: "${CLOUD_PROVIDER}"    # aws | gcs | azure | minio | ceph | r2
   bucket: "${CLOUD_BUCKET}"
   region: "${CLOUD_REGION}"
+  endpoint: "${CLOUD_ENDPOINT}"    # required for minio/ceph/r2, empty for aws/gcs/azure
+  # credentials: leave empty to use provider default credential chain
+  # credentials:
+  #   access_key_id: "${AWS_ACCESS_KEY_ID}"
+  #   secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+  #   gcs_key_file: "/path/to/key.json"
+  #   azure_connection_string: "${AZURE_STORAGE_CONNECTION_STRING}"
 
 build:
   backend: depot

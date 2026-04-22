@@ -7,8 +7,10 @@ gitlab:
   edition: "ce"                    # ce or ee
 
 storage:
-  backend: local
+  backend: local                   # local | chain | ipfs | cloud
   path: /var/lib/gitlab-enhanced/data
+  # provider, bucket, region, endpoint only used when backend=cloud
+  # credentials block is optional — defaults to provider credential chain
 
 build:
   backend: incus

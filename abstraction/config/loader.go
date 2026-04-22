@@ -34,11 +34,52 @@ type GitLabConfig struct {
 }
 
 type StorageConfig struct {
-	Backend  string `yaml:"backend"` // local | incus-volume | ipfs | s3 | minio | chain
-	Path     string `yaml:"path"`
-	Bucket   string `yaml:"bucket"`
-	Region   string `yaml:"region"`
-	Endpoint string `yaml:"endpoint"` // custom endpoint for MinIO/Ceph/R2
+	// Backend selects the storage implementation.
+	// Values: local | chain | ipfs | cloud
+	// "cloud" delegates to Provider below.
+	Backend string `yaml:"backend"`
+
+	// Path is the root directory for the local backend.
+	Path string `yaml:"path"`
+
+	// Provider selects the cloud storage provider when backend=cloud.
+	// Values: aws | gcs | azure | minio | ceph | r2
+	// All S3-compatible providers (minio, ceph, r2) use the S3 protocol
+	// with a custom Endpoint.
+	Provider string `yaml:"provider"`
+
+	// Bucket / Container name (all providers).
+	Bucket string `yaml:"bucket"`
+
+	// Region is required for aws, optional for others.
+	Region string `yaml:"region"`
+
+	// Endpoint overrides the default service URL.
+	// Required for minio, ceph, r2. Leave empty for aws/gcs/azure.
+	Endpoint string `yaml:"endpoint"`
+
+	// Credentials holds provider-specific authentication.
+	// Leave empty to use the provider's default credential chain
+	// (env vars, instance metadata, workload identity, etc.).
+	Credentials StorageCredentials `yaml:"credentials"`
+}
+
+// StorageCredentials holds optional explicit credentials.
+// Prefer environment variables or instance metadata over these fields.
+type StorageCredentials struct {
+	// AWS / S3-compatible
+	AccessKeyID     string `yaml:"access_key_id"`
+	SecretAccessKey string `yaml:"secret_access_key"`
+
+	// GCS: path to service account JSON key file
+	// Leave empty to use Application Default Credentials (ADC)
+	GCSKeyFile string `yaml:"gcs_key_file"`
+
+	// Azure: connection string or account+key
+	// Leave empty to use DefaultAzureCredential (env / managed identity)
+	AzureConnectionString string `yaml:"azure_connection_string"`
+	AzureAccountName      string `yaml:"azure_account_name"`
+	AzureAccountKey       string `yaml:"azure_account_key"`
 }
 
 type BuildConfig struct {
