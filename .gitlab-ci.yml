@@ -1,0 +1,101 @@
+# CI pipeline for gitlab-enhanced.
+#
+# Jobs run on GitLab.com shared runners (Docker executor).
+# To migrate to a self-hosted Incus runner, add a runner with tag "incus"
+# and replace the `image:` keys with `tags: [incus]` + a bare executor.
+#
+# Triggers: every push to any branch, and all MR pipelines.
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+stages:
+  - lint
+  - build
+  - test
+
+# ── Shared config ─────────────────────────────────────────────────────────────
+
+.go-base:
+  image: golang:1.24-bookworm
+  variables:
+    GOPATH: /go
+    GOFLAGS: "-mod=readonly"
+    CGO_ENABLED: "0"
+  cache:
+    key: go-mod-$CI_COMMIT_REF_SLUG
+    paths:
+      - /go/pkg/mod/
+    policy: pull-push
+
+# ── Lint stage ────────────────────────────────────────────────────────────────
+
+go:vet:
+  extends: .go-base
+  stage: lint
+  script:
+    - go vet ./...
+
+shellcheck:
+  image: koalaman/shellcheck-alpine:stable
+  stage: lint
+  script:
+    - shellcheck
+        deploy/local/bootstrap.sh
+        scripts/subtree-add-all.sh
+        scripts/subtree-sync.sh
+        .devcontainer/on-create.sh
+        .devcontainer/post-start.sh
+
+yamllint:
+  image: pipelinecomponents/yamllint:latest
+  stage: lint
+  script:
+    # Lint all YAML files, excluding submodule/subtree directories and
+    # generated files that we don't own.
+    - |
+      find . \( \
+        -path './.git' \
+        -o -path './vendor' \
+        -o -path './node_modules' \
+      \) -prune -o \( -name '*.yml' -o -name '*.yaml' \) -print \
+      | xargs yamllint -c .yamllint.yaml
+
+# ── Build stage ───────────────────────────────────────────────────────────────
+
+go:build:
+  extends: .go-base
+  stage: build
+  script:
+    - mkdir -p bin
+    - go build -v -o bin/gitlab-enhanced ./cmd/gitlab-enhanced/
+    - go build -v ./...
+  artifacts:
+    paths:
+      - bin/gitlab-enhanced
+    expire_in: 1 week
+
+# ── Test stage ────────────────────────────────────────────────────────────────
+
+go:test:
+  extends: .go-base
+  stage: test
+  variables:
+    GOFLAGS: ""   # allow go install to fetch gotestsum
+  cache:
+    key: go-mod-$CI_COMMIT_REF_SLUG
+    paths:
+      - /go/pkg/mod/
+    policy: pull          # test only reads the cache, build already wrote it
+  coverage: '/^coverage:\s+(\d+(?:\.\d+)?%)/'
+  artifacts:
+    reports:
+      junit: report.xml
+    expire_in: 1 week
+  before_script:
+    - go install gotest.tools/gotestsum@latest
+  script:
+    - gotestsum --junitfile report.xml --format testname -- -race -count=1 -coverprofile=coverage.out ./...
+    - go tool cover -func=coverage.out | tail -1
