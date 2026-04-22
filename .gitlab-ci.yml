@@ -32,9 +32,13 @@ stages:
   # The Incus executor ignores image: and uses INCUS_IMAGE instead.
   # Both point to equivalent environments: Go 1.24 + gotestsum + shellcheck + yamllint.
   image: golang:1.24-bookworm
-  tags:
-    - incus        # routes to self-hosted Incus runner when registered
-    - self-hosted  # falls back to shared runners when no Incus runner is available
+  # tags: intentionally absent — jobs run on shared runners until an Incus runner
+  # is registered. To migrate, uncomment the tags block and register a runner with
+  # tags [incus, self-hosted]. See runtime/incus/runner/README.md.
+  #
+  # tags:
+  #   - incus
+  #   - self-hosted
   variables:
     # Incus executor: launch the pre-baked CI base image.
     # Built by: bash runtime/incus/images/build-ci-base.sh
@@ -59,9 +63,6 @@ go:vet:
 
 shellcheck:
   image: koalaman/shellcheck-alpine:stable
-  tags:
-    - incus
-    - self-hosted
   stage: lint
   script:
     - shellcheck
@@ -78,9 +79,6 @@ shellcheck:
 
 yamllint:
   image: pipelinecomponents/yamllint:latest
-  tags:
-    - incus
-    - self-hosted
   stage: lint
   script:
     # Lint all YAML files, excluding submodule/subtree directories and
@@ -116,9 +114,11 @@ go:build:
 
 image:rebuild-ci-base:
   stage: image
-  tags:
-    - incus
-    - self-hosted
+  # This job requires incus on the host — it must run on the self-hosted runner.
+  # Uncomment tags when the Incus runner is registered.
+  # tags:
+  #   - incus
+  #   - self-hosted
   rules:
     # Only run when explicitly triggered — never on normal pushes or MRs.
     - if: $REBUILD_CI_IMAGE == "1"
