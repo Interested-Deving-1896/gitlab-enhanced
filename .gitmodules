@@ -1,0 +1,154 @@
+# =============================================================================
+# SUBMODULES — upstream projects consumed without forking
+# Update with: git submodule update --remote --merge
+# =============================================================================
+
+# --- KDE Developer Tools ---
+[submodule "dev-tools/kdevelop"]
+	path = dev-tools/kdevelop
+	url = https://invent.kde.org/kdevelop/kdevelop.git
+	branch = master
+
+[submodule "dev-tools/kdesrc-build"]
+	path = dev-tools/kdesrc-build
+	url = https://invent.kde.org/sdk/kdesrc-build.git
+	branch = master
+
+[submodule "dev-tools/kdiff3"]
+	path = dev-tools/kdiff3
+	url = https://invent.kde.org/sdk/kdiff3.git
+	branch = master
+
+[submodule "dev-tools/kommit"]
+	path = dev-tools/kommit
+	url = https://invent.kde.org/sdk/kommit.git
+	branch = master
+
+[submodule "dev-tools/clazy"]
+	path = dev-tools/clazy
+	url = https://invent.kde.org/sdk/clazy.git
+	branch = master
+
+[submodule "dev-tools/heaptrack"]
+	path = dev-tools/heaptrack
+	url = https://invent.kde.org/sdk/heaptrack.git
+	branch = master
+
+[submodule "dev-tools/kcachegrind"]
+	path = dev-tools/kcachegrind
+	url = https://invent.kde.org/sdk/kcachegrind.git
+	branch = master
+
+[submodule "dev-tools/massif-visualizer"]
+	path = dev-tools/massif-visualizer
+	url = https://invent.kde.org/sdk/massif-visualizer.git
+	branch = master
+
+[submodule "dev-tools/elf-dissector"]
+	path = dev-tools/elf-dissector
+	url = https://invent.kde.org/sdk/elf-dissector.git
+	branch = master
+
+[submodule "dev-tools/codevis"]
+	path = dev-tools/codevis
+	url = https://invent.kde.org/sdk/codevis.git
+	branch = master
+
+[submodule "dev-tools/kompare"]
+	path = dev-tools/kompare
+	url = https://invent.kde.org/sdk/kompare.git
+	branch = master
+
+[submodule "dev-tools/umbrello"]
+	path = dev-tools/umbrello
+	url = https://invent.kde.org/sdk/umbrello.git
+	branch = master
+
+[submodule "dev-tools/kapptemplate"]
+	path = dev-tools/kapptemplate
+	url = https://invent.kde.org/sdk/kapptemplate.git
+	branch = master
+
+[submodule "dev-tools/rust-qt-binding-generator"]
+	path = dev-tools/rust-qt-binding-generator
+	url = https://invent.kde.org/sdk/rust-qt-binding-generator.git
+	branch = master
+
+[submodule "dev-tools/kirigami-gallery"]
+	path = dev-tools/kirigami-gallery
+	url = https://invent.kde.org/sdk/kirigami-gallery.git
+	branch = master
+
+[submodule "dev-tools/kde-dev-utils"]
+	path = dev-tools/kde-dev-utils
+	url = https://invent.kde.org/sdk/kde-dev-utils.git
+	branch = master
+
+[submodule "dev-tools/kdesvn"]
+	path = dev-tools/kdesvn
+	url = https://invent.kde.org/sdk/kdesvn.git
+	branch = master
+
+[submodule "dev-tools/kdebugsettings"]
+	path = dev-tools/kdebugsettings
+	url = https://invent.kde.org/utilities/kdebugsettings.git
+	branch = master
+
+[submodule "dev-tools/licentia"]
+	path = dev-tools/licentia
+	url = https://invent.kde.org/sdk/licentia.git
+	branch = master
+
+[submodule "dev-tools/fielding"]
+	path = dev-tools/fielding
+	url = https://invent.kde.org/utilities/fielding.git
+	branch = master
+
+[submodule "dev-tools/accessibility-inspector"]
+	path = dev-tools/accessibility-inspector
+	url = https://invent.kde.org/accessibility/accessibility-inspector.git
+	branch = master
+
+[submodule "dev-tools/cervisia"]
+	path = dev-tools/cervisia
+	url = https://invent.kde.org/sdk/cervisia.git
+	branch = master
+
+# --- IPFS / Helia (JS, upstream) ---
+[submodule "ipfs/helia/verified-fetch"]
+	path = ipfs/helia/verified-fetch
+	url = https://github.com/ipfs/helia-verified-fetch.git
+	branch = main
+
+[submodule "ipfs/helia/remote-pinning"]
+	path = ipfs/helia/remote-pinning
+	url = https://github.com/ipfs/helia-remote-pinning.git
+	branch = main
+
+[submodule "ipfs/service-worker-gateway"]
+	path = ipfs/service-worker-gateway
+	url = https://github.com/ipfs/service-worker-gateway.git
+	branch = main
+
+# --- CI tooling (upstream CLIs) ---
+[submodule "ci/graphite/cli"]
+	path = ci/graphite/cli
+	url = https://github.com/withgraphite/graphite-cli.git
+	branch = main
+
+# --- Dev environment (upstream, consumed) ---
+[submodule "environments/openvscode-server"]
+	path = environments/openvscode-server
+	url = https://github.com/gitpod-io/openvscode-server.git
+	branch = main
+
+[submodule "environments/browser-extension"]
+	path = environments/browser-extension
+	url = https://github.com/gitpod-io/browser-extension.git
+	branch = main
+
+# --- Utilities ---
+[submodule "utils/mirrord"]
+	path = utils/mirrord
+	url = https://github.com/metalbear-co/mirrord.git
+	branch = main

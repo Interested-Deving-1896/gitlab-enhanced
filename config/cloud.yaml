@@ -1,0 +1,26 @@
+# Cloud overlay — applied only when cloud.enabled=true in defaults.yaml or local.yaml
+# Values here override defaults.yaml counterparts.
+# Do not commit secrets here — use environment variables referenced below.
+
+storage:
+  backend: s3
+  bucket: "${CLOUD_BUCKET}"
+  region: "${CLOUD_REGION}"
+
+build:
+  backend: depot
+  project_id: "${DEPOT_PROJECT_ID}"
+  token: "${DEPOT_TOKEN}"
+
+runner:
+  backend: blacksmith
+  org: "${BLACKSMITH_ORG}"
+  token: "${BLACKSMITH_TOKEN}"
+
+environment:
+  backend: ona                     # use Ona cloud environments when cloud enabled
+  token: "${ONA_TOKEN}"
+
+cloud:
+  enabled: true
+  provider: "${CLOUD_PROVIDER}"    # aws | gcp | azure

@@ -1,0 +1,63 @@
+---
+# Installs and configures containerd inside an Incus VM.
+# Runs via: incus exec <vm_name> -- <command>
+# The 'incus_vm_name' variable must be set by the caller.
+
+- name: Install containerd prerequisites
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- bash -c "
+      apt-get update -qq &&
+      apt-get install -y --no-install-recommends
+        ca-certificates curl gnupg lsb-release apt-transport-https
+    "
+  changed_when: true
+
+- name: Add Docker GPG key (for containerd package)
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- bash -c "
+      install -m 0755 -d /etc/apt/keyrings &&
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg |
+        gpg --dearmor -o /etc/apt/keyrings/docker.gpg &&
+      chmod a+r /etc/apt/keyrings/docker.gpg
+    "
+  changed_when: true
+
+- name: Add Docker apt repository
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- bash -c "
+      echo \"deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg]
+        https://download.docker.com/linux/ubuntu
+        $(lsb_release -cs) stable\" > /etc/apt/sources.list.d/docker.list &&
+      apt-get update -qq
+    "
+  changed_when: true
+
+- name: Install containerd
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- bash -c "
+      apt-get install -y containerd.io={{ containerd_version }}
+    "
+  changed_when: true
+
+- name: Generate default containerd config
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- bash -c "
+      mkdir -p /etc/containerd &&
+      containerd config default > /etc/containerd/config.toml
+    "
+  changed_when: true
+
+- name: Set SystemdCgroup=true in containerd config
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- bash -c "
+      sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+    "
+  changed_when: true
+
+- name: Enable and restart containerd
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- bash -c "
+      systemctl enable containerd &&
+      systemctl restart containerd
+    "
+  changed_when: true

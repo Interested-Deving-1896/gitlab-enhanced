@@ -1,0 +1,28 @@
+---
+# Creates an Incus bridge network for the Kubernetes cluster.
+# Idempotent: skips creation if the network already exists.
+
+- name: Check if network exists
+  ansible.builtin.command: incus network show {{ incus_network_name }}
+  register: network_check
+  changed_when: false
+  failed_when: false
+
+- name: Create Incus network
+  ansible.builtin.command: >
+    incus network create {{ incus_network_name }}
+    ipv4.address={{ incus_network_ipv4_cidr }}
+    ipv4.nat=true
+    ipv6.address=none
+  when: network_check.rc != 0
+
+- name: Retrieve network gateway address
+  ansible.builtin.command: >
+    incus network get {{ incus_network_name }} ipv4.address
+  register: network_gateway_raw
+  changed_when: false
+
+- name: Set gateway fact
+  ansible.builtin.set_fact:
+    incus_network_gateway: "{{ network_gateway_raw.stdout | ansible.utils.ipaddr('address') }}"
+    incus_network_prefix: "{{ network_gateway_raw.stdout | ansible.utils.ipaddr('prefix') }}"

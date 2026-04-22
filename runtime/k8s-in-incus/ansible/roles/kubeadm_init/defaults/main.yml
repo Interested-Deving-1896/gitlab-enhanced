@@ -1,0 +1,5 @@
+---
+k8s_pod_network_cidr: "192.168.0.0/16"
+k8s_repo_version: "v1.30"
+k8s_cni_manifest: "https://reweave.azurewebsites.net/k8s/v1.30/net.yaml"
+k8s_kubeconfig_local_path: "{{ playbook_dir }}/../kubeconfig.yaml"

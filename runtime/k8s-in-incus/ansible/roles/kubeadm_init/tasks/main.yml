@@ -1,0 +1,74 @@
+---
+# Initialises the Kubernetes control plane with kubeadm.
+# Stores the join command as a fact for worker nodes to consume.
+
+- name: Check if cluster is already initialised
+  ansible.builtin.command: incus exec {{ incus_vm_name }} -- kubectl cluster-info
+  register: cluster_check
+  changed_when: false
+  failed_when: false
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: Pull Kubernetes images
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- kubeadm config images pull
+  when: cluster_check.rc != 0
+  changed_when: true
+
+- name: Initialise cluster with kubeadm
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- kubeadm init
+      --node-name={{ incus_vm_name }}
+      --apiserver-advertise-address={{ incus_vm_ip }}
+      --pod-network-cidr={{ k8s_pod_network_cidr }}
+      --kubernetes-version={{ k8s_repo_version }}
+  when: cluster_check.rc != 0
+  changed_when: true
+  register: kubeadm_init_output
+
+- name: Set up kubeconfig for root
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- bash -c "
+      mkdir -p /root/.kube &&
+      cp /etc/kubernetes/admin.conf /root/.kube/config &&
+      chown root:root /root/.kube/config
+    "
+  when: cluster_check.rc != 0
+  changed_when: true
+
+- name: Apply CNI network addon (Weave)
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- kubectl apply -f {{ k8s_cni_manifest }}
+  when: cluster_check.rc != 0
+  changed_when: true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: Wait for control plane node to be Ready
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- kubectl get node {{ incus_vm_name }}
+      --no-headers -o custom-columns=STATUS:.status.conditions[-1].type
+  register: node_ready
+  until: node_ready.stdout == "Ready"
+  retries: 24
+  delay: 10
+  changed_when: false
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: Generate worker join command
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- kubeadm token create --print-join-command
+  register: join_command_raw
+  changed_when: true
+
+- name: Store join command as fact
+  ansible.builtin.set_fact:
+    k8s_join_command: "{{ join_command_raw.stdout }}"
+
+- name: Fetch kubeconfig to controller
+  ansible.builtin.command: >
+    incus file pull {{ incus_vm_name }}/etc/kubernetes/admin.conf
+      {{ k8s_kubeconfig_local_path }}
+  changed_when: true

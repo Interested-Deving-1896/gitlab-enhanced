@@ -1,0 +1,14 @@
+# Copy this to config/local.yaml and customise for your machine.
+# config/local.yaml is gitignored — never committed.
+
+gitlab:
+  domain: "gitlab.example.internal"
+
+storage:
+  path: /data/gitlab-enhanced
+
+lfs:
+  path: /data/gitlab-enhanced/lfs
+
+environment:
+  network: incusbr0

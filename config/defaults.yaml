@@ -1,0 +1,47 @@
+# Local-first defaults — no cloud account required to use any of these
+# Override individual values in config/local.yaml (gitignored)
+# Cloud overlays live in config/cloud.yaml (opt-in, disabled by default)
+
+gitlab:
+  domain: "gitlab.local"
+  edition: "ce"                    # ce or ee
+
+storage:
+  backend: local
+  path: /var/lib/gitlab-enhanced/data
+
+build:
+  backend: incus
+  socket: /var/lib/incus/unix.socket
+  cache_pool: default
+
+runner:
+  backend: incus
+  vm_profile: gitlab-runner
+  concurrent: 4
+
+lfs:
+  server: rudolfs
+  backend: local
+  path: /var/lib/gitlab-enhanced/lfs
+  encryption: false                # set true and provide key for encrypted LFS
+
+ipfs:
+  enabled: false                   # opt-in
+  node: ""
+  gateway: ""
+
+environment:
+  backend: incus                   # incus | gitpod-k8s | ona
+  workspace_image: "gitlab-enhanced/workspace-full:latest"
+  ide: openvscode-server
+  ide_port: 3000
+  network: gitlab-enhanced-br0
+
+cloud:
+  enabled: false                   # master switch — nothing calls cloud APIs unless true
+  provider: ""                     # aws | gcp | azure
+
+registry:
+  backend: local                   # uses GitLab's built-in container registry
+  url: "registry.gitlab.local"

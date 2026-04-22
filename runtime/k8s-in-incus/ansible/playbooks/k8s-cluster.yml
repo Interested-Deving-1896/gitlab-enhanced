@@ -1,0 +1,84 @@
+---
+# Provisions a full Kubernetes cluster inside Incus VMs on the local host.
+#
+# Usage:
+#   ansible-playbook runtime/k8s-in-incus/ansible/playbooks/k8s-cluster.yml
+#   ansible-playbook ... -e k8s_worker_count=3
+#   ansible-playbook ... -e incus_vm_cpus=4 -e incus_vm_memory=4GiB
+#
+# Result:
+#   - 1 control-plane VM + N worker VMs running inside Incus
+#   - kubeconfig written to runtime/k8s-in-incus/kubeconfig.yaml
+#   - Cluster accessible via: export KUBECONFIG=runtime/k8s-in-incus/kubeconfig.yaml
+
+- name: Provision Incus network
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - role: incus_network
+
+- name: Provision and configure control plane VM
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    incus_vm_name: control-plane
+    incus_vm_ip: "10.100.0.2"
+  roles:
+    - role: incus_vm
+    - role: containerd
+    - role: kubernetes_node
+    - role: kubeadm_init
+
+- name: Provision and join worker nodes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    k8s_control_plane_vm: control-plane
+  tasks:
+    - name: Provision worker {{ item }}
+      ansible.builtin.include_role:
+        name: incus_vm
+      vars:
+        incus_vm_name: "worker-{{ item }}"
+        incus_vm_ip: "10.100.0.{{ item | int + 2 }}"
+      loop: "{{ range(1, k8s_worker_count | int + 1) | list }}"
+
+    - name: Install containerd on worker {{ item }}
+      ansible.builtin.include_role:
+        name: containerd
+      vars:
+        incus_vm_name: "worker-{{ item }}"
+      loop: "{{ range(1, k8s_worker_count | int + 1) | list }}"
+
+    - name: Install Kubernetes components on worker {{ item }}
+      ansible.builtin.include_role:
+        name: kubernetes_node
+      vars:
+        incus_vm_name: "worker-{{ item }}"
+        k8s_install_kubectl: false
+      loop: "{{ range(1, k8s_worker_count | int + 1) | list }}"
+
+    - name: Join worker {{ item }} to cluster
+      ansible.builtin.include_role:
+        name: kubeadm_join
+      vars:
+        incus_vm_name: "worker-{{ item }}"
+      loop: "{{ range(1, k8s_worker_count | int + 1) | list }}"
+
+- name: Verify cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Show cluster nodes
+      ansible.builtin.command: >
+        incus exec control-plane -- kubectl get nodes -o wide
+      changed_when: false
+      register: nodes_output
+
+    - name: Print cluster nodes
+      ansible.builtin.debug:
+        msg: "{{ nodes_output.stdout_lines }}"

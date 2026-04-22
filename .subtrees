@@ -1,0 +1,54 @@
+# =============================================================================
+# SUBTREES — projects we own/fork and modify directly
+# Format: <local-path> <remote-url> <branch>
+#
+# To add a subtree:
+#   git subtree add --prefix=<path> <remote> <branch> --squash
+#
+# To sync upstream changes:
+#   git subtree pull --prefix=<path> <remote> <branch> --squash
+#
+# To push local changes back upstream:
+#   git subtree push --prefix=<path> <remote> <branch>
+# =============================================================================
+
+# --- Core: GitLab packaging + deployment ---
+core/omnibus                    https://gitlab.com/openos-project/git-management_deving/omnibus-gitlab.git                  main
+core/environment-toolkit        https://gitlab.com/openos-project/git-management_deving/gitlab-environment-toolkit.git      main
+
+# --- LFS servers ---
+lfs/server/rudolfs              https://github.com/jasonwhite/rudolfs.git                                                   master
+lfs/server/giftless             https://github.com/datopian/giftless.git                                                    main
+lfs/server/lfs-test-server      https://github.com/git-lfs/lfs-test-server.git                                              main
+
+# --- LFS client + transfer ---
+lfs/transfer/git-lfs            https://gitlab.com/openos-project/git-management_deving/git-lfs.git                         main
+lfs/transfer/git-lfs-transfer   https://gitlab.com/openos-project/git-management_deving/git-lfs-transfer.git                main
+
+# --- LFS adapters ---
+lfs/adapters/lfs-folderstore    https://github.com/sinbad/lfs-folderstore.git                                               master
+lfs/adapters/lfscache           https://gitlab.com/openos-project/git-management_deving/lfscache.git                        main
+
+# --- IPFS transport ---
+ipfs/brig                       https://github.com/sahib/brig.git                                                           master
+ipfs/git-lfs-ipfs               https://gitlab.com/openos-project/ipfs-deving/git-lfs-ipfs.git                             main
+ipfs/ipgit                      https://gitlab.com/openos-project/ipfs-deving/ipgit.git                                    main
+ipfs/ipfs-sync                  https://gitlab.com/openos-project/ipfs-deving/ipfs-sync.git                                main
+
+# --- Git hosting ---
+hosting/soft-serve              https://gitlab.com/openos-project/git-management_deving/soft-serve.git                     main
+hosting/soft-serve-action       https://gitlab.com/openos-project/git-management_deving/soft-serve-action.git              main
+
+# --- Dev environments (Gitpod Classic components we adapt) ---
+environments/supervisor         https://github.com/gitpod-io/gitpod.git                                                     main
+environments/content-service    https://github.com/gitpod-io/gitpod.git                                                     main
+environments/workspace-images   https://github.com/gitpod-io/workspace-images.git                                           main
+
+# --- Runtime ---
+runtime/blincus                 https://gitlab.com/openos-project/incus_deving/blincus.git                                  main
+runtime/k8s-in-incus            https://github.com/Esteban-Cruz/K8s-in-incus.git                                            main
+
+# --- Utilities ---
+utils/github-directory-downloader  https://gitlab.com/openos-project/git-management_deving/github-directory-downloader.git main
+utils/github-parser                https://gitlab.com/openos-project/git-management_deving/github-paser.git                main
+utils/gitpack                      https://gitlab.com/openos-project/git-management_deving/gitpack.git                     main

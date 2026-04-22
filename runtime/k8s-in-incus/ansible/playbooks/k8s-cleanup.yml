@@ -1,0 +1,54 @@
+---
+# Destroys all Incus VMs and network created by k8s-cluster.yml.
+# WARNING: this is destructive and irreversible.
+#
+# Usage:
+#   ansible-playbook runtime/k8s-in-incus/ansible/playbooks/k8s-cleanup.yml
+#   ansible-playbook ... -e k8s_worker_count=3   # if you used more workers
+
+- name: Destroy worker VMs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Stop and delete worker-{{ item }}
+      ansible.builtin.command: incus delete worker-{{ item }} --force
+      loop: "{{ range(1, k8s_worker_count | int + 1) | list }}"
+      failed_when: false
+      changed_when: true
+
+    - name: Delete worker profile {{ item }}
+      ansible.builtin.command: incus profile delete worker-{{ item }}
+      loop: "{{ range(1, k8s_worker_count | int + 1) | list }}"
+      failed_when: false
+      changed_when: true
+
+- name: Destroy control plane VM
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Stop and delete control-plane VM
+      ansible.builtin.command: incus delete control-plane --force
+      failed_when: false
+      changed_when: true
+
+    - name: Delete control-plane profile
+      ansible.builtin.command: incus profile delete control-plane
+      failed_when: false
+      changed_when: true
+
+- name: Destroy Incus network
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Delete Incus network
+      ansible.builtin.command: incus network delete {{ incus_network_name }}
+      failed_when: false
+      changed_when: true
+
+    - name: Remove local kubeconfig
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../kubeconfig.yaml"
+        state: absent

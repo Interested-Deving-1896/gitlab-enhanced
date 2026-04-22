@@ -1,0 +1,8 @@
+---
+# All playbooks run on localhost — they drive Incus via the CLI.
+# No SSH into VMs is needed; commands run via `incus exec`.
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_python_interpreter: "{{ ansible_playbook_python }}"

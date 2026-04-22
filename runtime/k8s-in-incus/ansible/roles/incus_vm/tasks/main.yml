@@ -1,0 +1,49 @@
+---
+# Launches an Incus VM with a static IP and resource limits.
+# Variables required by caller:
+#   incus_vm_name       - instance name (e.g. "control-plane", "worker-1")
+#   incus_vm_ip         - static IPv4 address (e.g. "10.100.0.2")
+#   incus_vm_cpus       - vCPU count
+#   incus_vm_memory     - memory string (e.g. "2GiB")
+
+- name: Check if VM already exists
+  ansible.builtin.command: incus info {{ incus_vm_name }}
+  register: vm_check
+  changed_when: false
+  failed_when: false
+
+- name: Create Incus profile for {{ incus_vm_name }}
+  ansible.builtin.command: >
+    incus profile create {{ incus_vm_name }}
+  when: vm_check.rc != 0
+  failed_when: false
+
+- name: Configure network in profile for {{ incus_vm_name }}
+  ansible.builtin.command: >
+    incus profile device add {{ incus_vm_name }} eth0 nic
+    nictype=bridged
+    parent={{ incus_network_name }}
+    ipv4.address={{ incus_vm_ip }}
+  when: vm_check.rc != 0
+  failed_when: false
+
+- name: Launch VM {{ incus_vm_name }}
+  ansible.builtin.command: >
+    incus launch {{ incus_vm_base_image }} {{ incus_vm_name }}
+    --profile default
+    --profile {{ incus_vm_name }}
+    --config limits.cpu={{ incus_vm_cpus }}
+    --config limits.memory={{ incus_vm_memory }}
+    --config security.nesting=true
+    --config security.syscalls.intercept.mknod=true
+    --config security.syscalls.intercept.setxattr=true
+    --vm
+  when: vm_check.rc != 0
+
+- name: Wait for VM {{ incus_vm_name }} to be ready
+  ansible.builtin.command: incus exec {{ incus_vm_name }} -- systemctl is-system-running
+  register: vm_ready
+  until: vm_ready.stdout in ['running', 'degraded']
+  retries: 30
+  delay: 5
+  changed_when: false

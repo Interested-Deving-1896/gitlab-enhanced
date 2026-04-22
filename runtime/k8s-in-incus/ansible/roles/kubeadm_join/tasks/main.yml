@@ -1,0 +1,30 @@
+---
+# Joins a worker node to an existing Kubernetes cluster.
+# Requires k8s_join_command fact set by kubeadm_init role.
+
+- name: Check if node has already joined
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- kubectl get node {{ incus_vm_name }}
+  register: node_check
+  changed_when: false
+  failed_when: false
+  environment:
+    KUBECONFIG: /etc/kubernetes/kubelet.conf
+
+- name: Join cluster
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} -- {{ k8s_join_command }}
+  when: node_check.rc != 0
+  changed_when: true
+
+- name: Wait for worker node to be Ready
+  ansible.builtin.command: >
+    incus exec {{ k8s_control_plane_vm }} -- kubectl get node {{ incus_vm_name }}
+      --no-headers -o custom-columns=STATUS:.status.conditions[-1].type
+  register: worker_ready
+  until: worker_ready.stdout == "Ready"
+  retries: 24
+  delay: 10
+  changed_when: false
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf

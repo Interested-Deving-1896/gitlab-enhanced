@@ -1,0 +1,68 @@
+# Build outputs
+bin/
+dist/
+build/
+*.out
+*.test
+*.exe
+
+# Go
+vendor/
+*.sum.bak
+
+# Node / JS
+node_modules/
+.next/
+.nuxt/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Ruby
+.bundle/
+*.gem
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
+
+# Ansible
+*.retry
+.vault_pass
+
+# Incus / runtime
+*.pid
+
+# Secrets / credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+secrets/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Temporary
+tmp/
+temp/

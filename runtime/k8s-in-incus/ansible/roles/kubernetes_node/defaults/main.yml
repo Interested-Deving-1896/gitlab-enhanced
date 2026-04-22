@@ -1,0 +1,6 @@
+---
+k8s_repo_version: "v1.30"
+k8s_kubeadm_version: "1.30.0-1.1"
+k8s_kubelet_version: "1.30.0-1.1"
+k8s_kubectl_version: "1.30.0-1.1"
+k8s_install_kubectl: true   # set false on worker nodes to save space

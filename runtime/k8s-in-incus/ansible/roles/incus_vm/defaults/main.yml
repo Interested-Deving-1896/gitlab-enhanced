@@ -1,0 +1,5 @@
+---
+incus_vm_base_image: "images:ubuntu/22.04/cloud"
+incus_vm_cpus: 2
+incus_vm_memory: "2GiB"
+incus_network_name: kubernetes

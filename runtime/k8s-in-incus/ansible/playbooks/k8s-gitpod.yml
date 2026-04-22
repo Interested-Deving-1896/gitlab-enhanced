@@ -1,0 +1,92 @@
+---
+# Installs Gitpod Classic on the K8s cluster provisioned by k8s-cluster.yml.
+# Gitpod Classic provides the full multi-user dev environment experience:
+# dashboard, auth providers, workspace snapshots, IDE routing.
+#
+# Prerequisites:
+#   ansible-playbook runtime/k8s-in-incus/ansible/playbooks/k8s-cluster.yml
+#
+# Usage:
+#   ansible-playbook runtime/k8s-in-incus/ansible/playbooks/k8s-gitpod.yml \
+#     -e gitpod_domain=gitpod.gitlab.local
+#
+# After completion, open https://{{ gitpod_domain }} in your browser.
+
+- name: Install prerequisites on control plane
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Install cert-manager
+      ansible.builtin.command: >
+        incus exec control-plane -- bash -c "
+          kubectl apply -f
+            https://github.com/cert-manager/cert-manager/releases/download/v1.14.5/cert-manager.yaml &&
+          kubectl wait --for=condition=Available deployment --all
+            -n cert-manager --timeout=120s
+        "
+      changed_when: true
+
+    - name: Label nodes for Gitpod workloads
+      ansible.builtin.command: >
+        incus exec control-plane -- kubectl label node {{ item.node }} {{ item.label }}=true
+          --overwrite
+      loop:
+        - { node: control-plane, label: gitpod.io/workload_meta }
+        - { node: control-plane, label: gitpod.io/workload_ide }
+        - { node: control-plane, label: gitpod.io/workload_services }
+        - { node: worker-1,      label: gitpod.io/workload_workspace_regular }
+        - { node: worker-1,      label: gitpod.io/workload_workspace_headless }
+      changed_when: true
+      failed_when: false
+
+- name: Generate and apply Gitpod installer config
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Download Gitpod installer
+      ansible.builtin.get_url:
+        url: https://github.com/gitpod-io/gitpod/releases/latest/download/gitpod-installer-linux-amd64
+        dest: /tmp/gitpod-installer
+        mode: "0755"
+
+    - name: Generate base config
+      ansible.builtin.command: /tmp/gitpod-installer config init -c /tmp/gitpod.config.yaml
+      changed_when: true
+
+    - name: Set domain in config
+      ansible.builtin.command: >
+        yq e '.domain = "{{ gitpod_domain }}"' -i /tmp/gitpod.config.yaml
+      changed_when: true
+
+    - name: Set containerd runtime dir
+      ansible.builtin.command: >
+        yq e '.workspace.runtime.containerdRuntimeDir =
+          "/run/containerd/io.containerd.runtime.v2.task/k8s.io"' -i /tmp/gitpod.config.yaml
+      changed_when: true
+
+    - name: Render Gitpod Kubernetes manifests
+      ansible.builtin.command: >
+        /tmp/gitpod-installer render --config /tmp/gitpod.config.yaml > /tmp/gitpod.yaml
+      changed_when: true
+
+    - name: Copy manifests into control plane VM
+      ansible.builtin.command: >
+        incus file push /tmp/gitpod.yaml control-plane/tmp/gitpod.yaml
+      changed_when: true
+
+    - name: Apply Gitpod manifests
+      ansible.builtin.command: >
+        incus exec control-plane -- kubectl apply -f /tmp/gitpod.yaml
+      changed_when: true
+
+    - name: Wait for Gitpod proxy to be ready
+      ansible.builtin.command: >
+        incus exec control-plane -- kubectl rollout status deployment/proxy
+          -n default --timeout=300s
+      changed_when: false
+
+    - name: Print access URL
+      ansible.builtin.debug:
+        msg: "Gitpod Classic is available at https://{{ gitpod_domain }}"

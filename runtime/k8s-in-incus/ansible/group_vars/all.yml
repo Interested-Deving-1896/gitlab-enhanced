@@ -1,0 +1,35 @@
+---
+# Shared defaults for all k8s-in-incus playbooks.
+# Override per-playbook with -e key=value or in host_vars/.
+
+# Cluster sizing
+k8s_worker_count: 1
+
+# VM resources
+incus_vm_base_image: "images:ubuntu/22.04/cloud"
+incus_vm_cpus: 2
+incus_vm_memory: "2GiB"
+
+# Network
+incus_network_name: kubernetes
+incus_network_ipv4_cidr: "10.100.0.1/24"
+
+# Kubernetes versions
+k8s_repo_version: "v1.30"
+k8s_kubeadm_version: "1.30.0-1.1"
+k8s_kubelet_version: "1.30.0-1.1"
+k8s_kubectl_version: "1.30.0-1.1"
+k8s_pod_network_cidr: "192.168.0.0/16"
+k8s_cni_manifest: "https://reweave.azurewebsites.net/k8s/v1.30/net.yaml"
+
+# containerd
+containerd_version: "1.7.12"
+
+# Gitpod Classic
+gitpod_domain: "gitpod.gitlab.local"
+
+# GitLab Runner
+gitlab_url: "https://gitlab.local"
+gitlab_runner_token: ""                        # set via -e or vault
+gitlab_runner_default_image: "ubuntu:22.04"
+gitlab_runner_concurrent: 4
