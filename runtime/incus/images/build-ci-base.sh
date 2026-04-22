@@ -108,19 +108,19 @@ info "Installing Go ${GO_VERSION}"
 incus exec "${BUILD_CONTAINER}" -- bash -c "
   curl -fsSL 'https://go.dev/dl/go${GO_VERSION}.linux-${GOARCH}.tar.gz' \
     | tar -C /usr/local -xz
-  echo 'export PATH=/usr/local/go/bin:/root/go/bin:\$PATH' >> /etc/environment
-  echo 'export GOPATH=/root/go' >> /etc/environment
+  echo 'export PATH=/usr/local/go/bin:/go/bin:\$PATH' >> /etc/environment
+  echo 'export GOPATH=/go' >> /etc/environment
+  mkdir -p /go
 "
 ok "Go ${GO_VERSION} installed"
 
 # ── gotestsum ─────────────────────────────────────────────────────────────────
 info "Installing gotestsum ${GOTESTSUM_VERSION}"
 incus exec "${BUILD_CONTAINER}" -- bash -c "
-  export PATH=/usr/local/go/bin:/root/go/bin:\$PATH
-  export GOPATH=/root/go
+  export PATH=/usr/local/go/bin:/go/bin:\$PATH
+  export GOPATH=/go
   go install gotest.tools/gotestsum@v${GOTESTSUM_VERSION}
-  # Make it available system-wide
-  cp /root/go/bin/gotestsum /usr/local/bin/gotestsum
+  cp /go/bin/gotestsum /usr/local/bin/gotestsum
 "
 ok "gotestsum installed"
 
@@ -153,7 +153,7 @@ EOF
 
 # ── Pre-create standard directories ───────────────────────────────────────────
 incus exec "${BUILD_CONTAINER}" -- bash -c "
-  mkdir -p /builds /cache /root/go
+  mkdir -p /builds /cache /go
 "
 
 # ── Stop container before publishing ─────────────────────────────────────────

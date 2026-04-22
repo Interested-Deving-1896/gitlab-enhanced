@@ -44,13 +44,15 @@ stages:
     # Built by: bash runtime/incus/images/build-ci-base.sh
     # Contains: Go 1.24, gitlab-runner-helper, gotestsum, shellcheck, yamllint
     INCUS_IMAGE: "gitlab-enhanced/ci-base:latest"
-    GOPATH: /root/go
+    # /go is the GOPATH in golang:1.24-bookworm (shared runners).
+    # The Incus CI base image also sets GOPATH=/go for consistency.
+    GOPATH: /go
     GOFLAGS: "-mod=readonly"
     CGO_ENABLED: "0"
   cache:
     key: go-mod-$CI_COMMIT_REF_SLUG
     paths:
-      - /root/go/pkg/mod/
+      - /go/pkg/mod/
     policy: pull-push
 
 # ── Lint stage ────────────────────────────────────────────────────────────────
@@ -143,7 +145,7 @@ go:test:
   cache:
     key: go-mod-$CI_COMMIT_REF_SLUG
     paths:
-      - /root/go/pkg/mod/
+      - /go/pkg/mod/
     policy: pull  # test only reads the cache; build already wrote it
   coverage: '/^coverage:\s+(\d+(?:\.\d+)?%)/'
   artifacts:
