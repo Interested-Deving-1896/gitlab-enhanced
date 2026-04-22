@@ -4,12 +4,13 @@
 # Future executor:  self-hosted Incus runner (custom executor).
 #
 # Migration path — when the Incus runner is ready:
-#   1. Run: sudo bash runtime/incus/runner/install.sh   (on the runner host)
-#   2. Register the runner with tags: incus, self-hosted
-#   3. Copy runtime/incus/runner/config.toml to /etc/gitlab-runner/config.toml
-#   4. The `tags` key below already routes tagged jobs to the Incus runner.
+#   1. Build the CI base image: bash runtime/incus/images/build-ci-base.sh
+#   2. Install executor scripts: sudo bash runtime/incus/runner/install.sh
+#   3. Register the runner with tags: incus, self-hosted
+#   4. Copy runtime/incus/runner/config.toml to /etc/gitlab-runner/config.toml
+#   5. The `tags` and `INCUS_IMAGE` keys below route jobs to the Incus runner.
 #      The `image:` keys are ignored by the Incus executor but kept as
-#      documentation of the intended environment.
+#      documentation of the intended environment for shared-runner fallback.
 #
 # Triggers: every push to any branch, and all MR pipelines.
 
@@ -22,25 +23,30 @@ stages:
   - lint
   - build
   - test
+  - image
 
 # ── Shared config ─────────────────────────────────────────────────────────────
 
 .go-base:
-  # image: used by shared runners; ignored by the Incus executor.
-  # The Incus executor uses INCUS_IMAGE (default: ubuntu:24.04) with Go
-  # pre-installed via cloud-init or a custom image.
+  # image: used by shared runners (Docker executor).
+  # The Incus executor ignores image: and uses INCUS_IMAGE instead.
+  # Both point to equivalent environments: Go 1.24 + gotestsum + shellcheck + yamllint.
   image: golang:1.24-bookworm
   tags:
     - incus        # routes to self-hosted Incus runner when registered
     - self-hosted  # falls back to shared runners when no Incus runner is available
   variables:
-    GOPATH: /go
+    # Incus executor: launch the pre-baked CI base image.
+    # Built by: bash runtime/incus/images/build-ci-base.sh
+    # Contains: Go 1.24, gitlab-runner-helper, gotestsum, shellcheck, yamllint
+    INCUS_IMAGE: "gitlab-enhanced/ci-base:latest"
+    GOPATH: /root/go
     GOFLAGS: "-mod=readonly"
     CGO_ENABLED: "0"
   cache:
     key: go-mod-$CI_COMMIT_REF_SLUG
     paths:
-      - /go/pkg/mod/
+      - /root/go/pkg/mod/
     policy: pull-push
 
 # ── Lint stage ────────────────────────────────────────────────────────────────
@@ -101,25 +107,53 @@ go:build:
       - bin/gitlab-enhanced
     expire_in: 1 week
 
+# ── Image stage ───────────────────────────────────────────────────────────────
+# Rebuilds the pre-baked CI base image on the self-hosted Incus runner.
+# Triggered manually to control when Go / runner-helper versions are bumped.
+#
+# Run via: GitLab UI → Pipelines → Run pipeline → set REBUILD_CI_IMAGE=1
+# Or:      gitlab-runner exec custom image:rebuild-ci-base (local test)
+
+image:rebuild-ci-base:
+  stage: image
+  tags:
+    - incus
+    - self-hosted
+  rules:
+    # Only run when explicitly triggered — never on normal pushes or MRs.
+    - if: $REBUILD_CI_IMAGE == "1"
+      when: always
+    - when: never
+  variables:
+    GO_VERSION: "1.24.2"
+    RUNNER_VERSION: "17.11.0"
+    GOTESTSUM_VERSION: "1.12.0"
+  script:
+    - bash runtime/incus/images/build-ci-base.sh
+    - incus image info gitlab-enhanced/ci-base:latest
+  after_script:
+    - echo "Image rebuilt. Export with:"
+    - echo "  incus image export gitlab-enhanced/ci-base:latest ci-base.tar.gz"
+
 # ── Test stage ────────────────────────────────────────────────────────────────
 
 go:test:
   extends: .go-base
   stage: test
-  variables:
-    GOFLAGS: ""   # allow go install to fetch gotestsum
   cache:
     key: go-mod-$CI_COMMIT_REF_SLUG
     paths:
-      - /go/pkg/mod/
-    policy: pull          # test only reads the cache, build already wrote it
+      - /root/go/pkg/mod/
+    policy: pull  # test only reads the cache; build already wrote it
   coverage: '/^coverage:\s+(\d+(?:\.\d+)?%)/'
   artifacts:
     reports:
       junit: report.xml
     expire_in: 1 week
   before_script:
-    - go install gotest.tools/gotestsum@latest
+    # gotestsum is pre-installed in gitlab-enhanced/ci-base:latest (Incus executor).
+    # On shared runners (Docker executor) it is not in the image, so install it.
+    - command -v gotestsum || go install gotest.tools/gotestsum@v1.12.0
   script:
     - gotestsum --junitfile report.xml --format testname -- -race -count=1 -coverprofile=coverage.out ./...
     - go tool cover -func=coverage.out | tail -1
