@@ -1,0 +1,74 @@
+# Incus profile for the BuildKit daemon instance.
+# BuildKit runs as a long-lived VM that CI runners connect to via its gRPC socket.
+#
+# Apply:
+#   incus profile create buildkit < runtime/incus/profiles/buildkit.yaml
+#   incus profile edit   buildkit < runtime/incus/profiles/buildkit.yaml
+
+name: buildkit
+description: "gitlab-enhanced BuildKit daemon"
+
+config:
+  # BuildKit needs to run privileged containers for its executor.
+  security.nesting: "true"
+  security.privileged: "false"
+
+  # BuildKit is CPU and I/O intensive during image builds.
+  limits.cpu: "4"
+  limits.memory: "8GB"
+  limits.memory.swap: "false"
+
+  cloud-init.vendor-data: |
+    #cloud-config
+    package_update: true
+    packages:
+      - ca-certificates
+      - curl
+    runcmd:
+      # Install BuildKit from the official release.
+      - |
+        BUILDKIT_VERSION=v0.19.0
+        ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+        curl -fsSL "https://github.com/moby/buildkit/releases/download/${BUILDKIT_VERSION}/buildkit-${BUILDKIT_VERSION}.linux-${ARCH}.tar.gz" \
+          | tar -xz -C /usr/local
+      # Create systemd unit for buildkitd.
+      - |
+        cat > /etc/systemd/system/buildkitd.service <<'EOF'
+        [Unit]
+        Description=BuildKit daemon
+        After=network.target
+
+        [Service]
+        ExecStart=/usr/local/bin/buildkitd \
+          --addr unix:///run/buildkit/buildkitd.sock \
+          --addr tcp://0.0.0.0:1234
+        Restart=always
+        RestartSec=5
+
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+      - systemctl daemon-reload
+      - systemctl enable --now buildkitd
+
+devices:
+  root:
+    type: disk
+    path: /
+    pool: default
+    # Layer cache can grow large; 80 GB is a reasonable starting point.
+    size: 80GB
+
+  eth0:
+    type: nic
+    nictype: bridged
+    parent: gitlab-enhanced
+    name: eth0
+
+  # Expose the BuildKit gRPC socket to the host so the CLI and runners
+  # can reach it without going through the network.
+  # Uncomment once the instance is running and the socket path is confirmed.
+  # buildkit-sock:
+  #   type: unix-char
+  #   source: /var/lib/incus/storage-pools/default/containers/buildkit/rootfs/run/buildkit/buildkitd.sock
+  #   path: /run/buildkit/buildkitd.sock
