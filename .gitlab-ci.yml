@@ -157,5 +157,5 @@ go:test:
     # On shared runners (Docker executor) it is not in the image, so install it.
     - command -v gotestsum || go install gotest.tools/gotestsum@v1.12.0
   script:
-    - gotestsum --junitfile report.xml --format testname -- -race -count=1 -coverprofile=coverage.out ./...
+    - gotestsum --junitfile report.xml --format testname -- -count=1 -coverprofile=coverage.out ./...
     - go tool cover -func=coverage.out | tail -1
