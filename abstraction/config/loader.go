@@ -34,10 +34,11 @@ type GitLabConfig struct {
 }
 
 type StorageConfig struct {
-	Backend string `yaml:"backend"` // local | incus-volume | ipfs | s3
-	Path    string `yaml:"path"`
-	Bucket  string `yaml:"bucket"`
-	Region  string `yaml:"region"`
+	Backend  string `yaml:"backend"` // local | incus-volume | ipfs | s3 | minio | chain
+	Path     string `yaml:"path"`
+	Bucket   string `yaml:"bucket"`
+	Region   string `yaml:"region"`
+	Endpoint string `yaml:"endpoint"` // custom endpoint for MinIO/Ceph/R2
 }
 
 type BuildConfig struct {

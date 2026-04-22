@@ -24,7 +24,14 @@ func FromConfig(cfg *config.Config) (Backend, error) {
 			chain = append(chain, NewIPFSBackend(cfg.IPFS.Node))
 		}
 		if cfg.Cloud.Enabled && cfg.Storage.Bucket != "" {
-			chain = append(chain, NewS3Backend(cfg.Storage.Bucket, cfg.Storage.Region))
+			s3b, err := NewS3Backend(S3Options{
+				Bucket: cfg.Storage.Bucket,
+				Region: cfg.Storage.Region,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("chain: building s3 backend: %w", err)
+			}
+			chain = append(chain, s3b)
 		}
 		return chain, nil
 
@@ -38,7 +45,17 @@ func FromConfig(cfg *config.Config) (Backend, error) {
 		if !cfg.Cloud.Enabled {
 			return nil, fmt.Errorf("storage.backend is 's3' but cloud.enabled is false")
 		}
-		return NewS3Backend(cfg.Storage.Bucket, cfg.Storage.Region), nil
+		return NewS3Backend(S3Options{
+			Bucket: cfg.Storage.Bucket,
+			Region: cfg.Storage.Region,
+		})
+
+	case "minio":
+		return NewS3Backend(S3Options{
+			Bucket:   cfg.Storage.Bucket,
+			Region:   cfg.Storage.Region,
+			Endpoint: cfg.Storage.Endpoint,
+		})
 
 	default:
 		return nil, fmt.Errorf("unknown storage backend: %q", cfg.Storage.Backend)
