@@ -1,0 +1,57 @@
+# Incus profile for developer workspaces.
+# Applied to every workspace container/VM created by the environment backend.
+#
+# Apply:
+#   incus profile create workspace-default < runtime/incus/profiles/workspace-default.yaml
+#   incus profile edit   workspace-default < runtime/incus/profiles/workspace-default.yaml
+
+name: workspace-default
+description: "gitlab-enhanced developer workspace"
+
+config:
+  # Allow nested containers (needed for Docker-in-container or Incus-in-container).
+  security.nesting: "true"
+
+  # Prevent privilege escalation inside the container.
+  security.privileged: "false"
+
+  # Resource limits — override in local.yaml or per-instance.
+  limits.cpu: "4"
+  limits.memory: "8GB"
+  limits.memory.swap: "false"
+
+  # Cloud-init user-data is injected at launch time by the environment backend.
+  # The profile sets the vendor-data defaults only.
+  cloud-init.vendor-data: |
+    #cloud-config
+    package_update: false
+    timezone: UTC
+
+devices:
+  # Root filesystem — size is a soft cap; override per-instance for larger workspaces.
+  root:
+    type: disk
+    path: /
+    pool: default
+    size: 40GB
+
+  # Expose the host's Docker socket when present (opt-in; remove if not needed).
+  # docker-sock:
+  #   type: unix-char
+  #   source: /var/run/docker.sock
+  #   path: /var/run/docker.sock
+
+  # Shared workspace source mount — bind-mount the repo root read-only.
+  # Uncomment and set source to the host path you want to expose.
+  # workspace-src:
+  #   type: disk
+  #   source: /workspaces/workspaces
+  #   path: /workspace
+  #   readonly: "false"
+
+  # eth0 — attach to the gitlab-enhanced bridge network.
+  eth0:
+    type: nic
+    nictype: bridged
+    parent: gitlab-enhanced
+    name: eth0

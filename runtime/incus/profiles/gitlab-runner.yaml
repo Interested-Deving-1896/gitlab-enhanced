@@ -1,0 +1,56 @@
+# Incus profile for GitLab CI runners.
+# Each CI job runs in a fresh container/VM launched with this profile.
+#
+# Apply:
+#   incus profile create gitlab-runner < runtime/incus/profiles/gitlab-runner.yaml
+#   incus profile edit   gitlab-runner < runtime/incus/profiles/gitlab-runner.yaml
+
+name: gitlab-runner
+description: "gitlab-enhanced CI runner"
+
+config:
+  # Runners need nesting to support Docker-in-Docker jobs.
+  security.nesting: "true"
+  security.privileged: "false"
+
+  # Runners are ephemeral — disable swap to keep job timing predictable.
+  limits.cpu: "2"
+  limits.memory: "4GB"
+  limits.memory.swap: "false"
+
+  # Automatically delete the instance when it stops (ephemeral job containers).
+  # Set to "false" if you want to inspect failed jobs post-mortem.
+  # Note: this is set per-launch by the runner backend, not here, but
+  # documenting the intent.
+
+  cloud-init.vendor-data: |
+    #cloud-config
+    package_update: false
+    timezone: UTC
+    # Pre-install common CI tools
+    packages:
+      - git
+      - curl
+      - ca-certificates
+
+devices:
+  root:
+    type: disk
+    path: /
+    pool: default
+    # Runners need enough space for build artefacts and layer caches.
+    size: 20GB
+
+  eth0:
+    type: nic
+    nictype: bridged
+    parent: gitlab-enhanced
+    name: eth0
+
+  # Expose BuildKit socket from the buildkit instance so runners can
+  # build OCI images without a Docker daemon.
+  # Uncomment after the buildkit instance is running.
+  # buildkit-sock:
+  #   type: unix-char
+  #   source: /var/snap/incus/common/incus/unix.socket
+  #   path: /run/buildkit/buildkitd.sock
