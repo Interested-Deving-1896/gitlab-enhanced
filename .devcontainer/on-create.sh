@@ -40,8 +40,12 @@ pip install --quiet \
 echo "→ Installing Ruby tools (for omnibus)"
 gem install --quiet bundler rake
 
-echo "→ Installing pre-commit hooks"
+echo "→ Initialising git submodules"
 cd "$(git rev-parse --show-toplevel)"
+git submodule update --init --recursive --depth 1 2>/dev/null || \
+  echo "  ⚠ Some submodules could not be initialised (network or auth issue — run manually later)"
+
+echo "→ Installing pre-commit hooks"
 pre-commit install --install-hooks 2>/dev/null || true
 
 echo "✅ on-create complete"
