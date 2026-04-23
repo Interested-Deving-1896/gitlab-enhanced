@@ -2,7 +2,7 @@
 bin/
 /gitlab-enhanced
 dist/
-build/
+/build/
 *.out
 *.test
 *.exe
