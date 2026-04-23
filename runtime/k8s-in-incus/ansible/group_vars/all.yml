@@ -33,3 +33,5 @@ gitlab_url: "https://gitlab.local"
 gitlab_runner_token: ""                        # set via -e or vault
 gitlab_runner_default_image: "ubuntu:22.04"
 gitlab_runner_concurrent: 4
+gitlab_runner_namespace: "gitlab-runner"
+gitlab_runner_chart_version: "0.64.0"          # matches GitLab 17.x

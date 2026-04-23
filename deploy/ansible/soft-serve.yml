@@ -1,0 +1,124 @@
+---
+# Deploys soft-serve (SSH-first git server) inside an Incus container.
+#
+# Usage:
+#   ansible-playbook deploy/ansible/soft-serve.yml
+#
+# Variables:
+#   soft_serve_container  — Incus container name (default: soft-serve)
+#   soft_serve_image      — Incus base image (default: ubuntu:24.04)
+#   soft_serve_version    — soft-serve release version (default: 0.7.4)
+#   soft_serve_ssh_port   — SSH listen port (default: 23231)
+#   soft_serve_http_port  — HTTP/git listen port (default: 23232)
+#   soft_serve_data_dir   — data directory inside container (default: /var/lib/soft-serve)
+#   soft_serve_host_dir   — host path for persistent data (default: /var/lib/gitlab-enhanced/soft-serve)
+
+- name: Deploy soft-serve
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    soft_serve_container: "soft-serve"
+    soft_serve_image: "ubuntu:24.04"
+    soft_serve_version: "0.7.4"
+    soft_serve_ssh_port: 23231
+    soft_serve_http_port: 23232
+    soft_serve_data_dir: "/var/lib/soft-serve"
+    soft_serve_host_dir: "/var/lib/gitlab-enhanced/soft-serve"
+
+  tasks:
+    - name: Ensure host data directory exists
+      ansible.builtin.file:
+        path: "{{ soft_serve_host_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check if container already exists
+      ansible.builtin.command: incus info {{ soft_serve_container }}
+      register: container_info
+      changed_when: false
+      failed_when: false
+
+    - name: Launch soft-serve container
+      ansible.builtin.command: >
+        incus launch {{ soft_serve_image }} {{ soft_serve_container }} --profile default
+      when: container_info.rc != 0
+      changed_when: true
+
+    - name: Wait for container to be ready
+      ansible.builtin.command: incus exec {{ soft_serve_container }} -- systemctl is-system-running
+      register: system_state
+      until: system_state.stdout in ['running', 'degraded']
+      retries: 20
+      delay: 5
+      changed_when: false
+
+    - name: Install prerequisites
+      ansible.builtin.shell: |
+        incus exec {{ soft_serve_container }} -- bash -c '
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq curl ca-certificates
+        '
+      changed_when: true
+
+    - name: Install soft-serve binary
+      ansible.builtin.shell: |
+        incus exec {{ soft_serve_container }} -- bash -c '
+          if command -v soft &>/dev/null; then exit 0; fi
+          ARCH=$(uname -m | sed "s/x86_64/amd64/;s/aarch64/arm64/")
+          VERSION={{ soft_serve_version }}
+          curl -fsSL \
+            "https://github.com/charmbracelet/soft-serve/releases/download/v${VERSION}/soft-serve_${VERSION}_linux_${ARCH}.tar.gz" \
+            | tar -xz -C /usr/local/bin soft
+          chmod +x /usr/local/bin/soft
+        '
+      changed_when: true
+
+    - name: Create data directory
+      ansible.builtin.shell: |
+        incus exec {{ soft_serve_container }} -- mkdir -p {{ soft_serve_data_dir }}
+      changed_when: true
+
+    - name: Write soft-serve systemd unit
+      ansible.builtin.shell: |
+        incus exec {{ soft_serve_container }} -- bash -c '
+          cat > /etc/systemd/system/soft-serve.service <<EOF
+        [Unit]
+        Description=soft-serve git server
+        After=network.target
+
+        [Service]
+        Environment=SOFT_SERVE_DATA_PATH={{ soft_serve_data_dir }}
+        Environment=SOFT_SERVE_SSH_LISTEN_ADDR=:{{ soft_serve_ssh_port }}
+        Environment=SOFT_SERVE_HTTP_LISTEN_ADDR=:{{ soft_serve_http_port }}
+        ExecStart=/usr/local/bin/soft serve
+        Restart=always
+        RestartSec=5
+
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+          systemctl daemon-reload
+          systemctl enable --now soft-serve
+        '
+      changed_when: true
+
+    - name: Wait for soft-serve SSH port
+      ansible.builtin.shell: |
+        incus exec {{ soft_serve_container }} -- bash -c '
+          for i in $(seq 1 20); do
+            ss -tlnp | grep -q :{{ soft_serve_ssh_port }} && exit 0
+            sleep 3
+          done
+          exit 1
+        '
+      changed_when: false
+
+    - name: Print soft-serve info
+      ansible.builtin.debug:
+        msg: >
+          soft-serve running in container {{ soft_serve_container }}.
+          SSH: ssh://{{ soft_serve_container }}:{{ soft_serve_ssh_port }}
+          HTTP: http://{{ soft_serve_container }}:{{ soft_serve_http_port }}

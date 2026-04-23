@@ -1,0 +1,109 @@
+---
+# Deploys GitLab (Omnibus) inside an Incus container.
+#
+# Usage:
+#   ansible-playbook deploy/ansible/gitlab.yml \
+#     -e gitlab_domain=gitlab.local \
+#     -e gitlab_edition=ce
+#
+# Variables:
+#   gitlab_domain    — external hostname (default: gitlab.local)
+#   gitlab_edition   — ce or ee (default: ce)
+#   gitlab_container — Incus container name (default: gitlab)
+#   gitlab_profile   — Incus profile to apply (default: default)
+#   gitlab_image     — Incus base image (default: ubuntu:24.04)
+#   gitlab_data_dir  — host path for persistent data volume (default: /var/lib/gitlab-enhanced/gitlab)
+
+- name: Deploy GitLab Omnibus
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    gitlab_domain: "gitlab.local"
+    gitlab_edition: "ce"
+    gitlab_container: "gitlab"
+    gitlab_profile: "default"
+    gitlab_image: "ubuntu:24.04"
+    gitlab_data_dir: "/var/lib/gitlab-enhanced/gitlab"
+    gitlab_package: "gitlab-{{ gitlab_edition }}"
+
+  tasks:
+    - name: Ensure data directory exists on host
+      ansible.builtin.file:
+        path: "{{ gitlab_data_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check if container already exists
+      ansible.builtin.command: incus info {{ gitlab_container }}
+      register: container_info
+      changed_when: false
+      failed_when: false
+
+    - name: Launch GitLab container
+      ansible.builtin.command: >
+        incus launch {{ gitlab_image }} {{ gitlab_container }}
+        --profile {{ gitlab_profile }}
+      when: container_info.rc != 0
+      changed_when: true
+
+    - name: Wait for container to be ready
+      ansible.builtin.command: incus exec {{ gitlab_container }} -- systemctl is-system-running
+      register: system_state
+      until: system_state.stdout in ['running', 'degraded']
+      retries: 30
+      delay: 5
+      changed_when: false
+
+    - name: Install prerequisites
+      ansible.builtin.shell: |
+        incus exec {{ gitlab_container }} -- bash -c '
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq curl ca-certificates tzdata perl
+        '
+      changed_when: true
+
+    - name: Add GitLab apt repository
+      ansible.builtin.shell: |
+        incus exec {{ gitlab_container }} -- bash -c '
+          curl -fsSL https://packages.gitlab.com/install/repositories/gitlab/{{ gitlab_package }}/script.deb.sh | bash
+        '
+      changed_when: true
+
+    - name: Install GitLab Omnibus
+      ansible.builtin.shell: |
+        incus exec {{ gitlab_container }} -- bash -c '
+          export DEBIAN_FRONTEND=noninteractive
+          EXTERNAL_URL="https://{{ gitlab_domain }}" apt-get install -y {{ gitlab_package }}
+        '
+      changed_when: true
+
+    - name: Configure external URL
+      ansible.builtin.shell: |
+        incus exec {{ gitlab_container }} -- bash -c '
+          grep -q "external_url" /etc/gitlab/gitlab.rb || true
+          sed -i "s|^external_url.*|external_url \"https://{{ gitlab_domain }}\"|" /etc/gitlab/gitlab.rb
+        '
+      changed_when: true
+
+    - name: Reconfigure GitLab
+      ansible.builtin.shell: |
+        incus exec {{ gitlab_container }} -- gitlab-ctl reconfigure
+      changed_when: true
+
+    - name: Wait for GitLab to be healthy
+      ansible.builtin.shell: |
+        incus exec {{ gitlab_container }} -- gitlab-healthcheck
+      register: health
+      until: health.rc == 0
+      retries: 40
+      delay: 15
+      changed_when: false
+
+    - name: Print initial root password location
+      ansible.builtin.debug:
+        msg: >
+          GitLab is available at https://{{ gitlab_domain }}.
+          Initial root password: incus exec {{ gitlab_container }} -- cat /etc/gitlab/initial_root_password

@@ -1,6 +1,6 @@
 ---
 # Installs GitLab Runner with the Kubernetes executor on the local K8s cluster.
-# Runners register against the GitLab instance deployed by core/omnibus.
+# Runners register against the GitLab instance deployed by deploy/ansible/gitlab.yml.
 #
 # Prerequisites:
 #   ansible-playbook runtime/k8s-in-incus/ansible/playbooks/k8s-cluster.yml
@@ -9,52 +9,93 @@
 #   ansible-playbook runtime/k8s-in-incus/ansible/playbooks/k8s-gitlab-runner.yml \
 #     -e gitlab_url=https://gitlab.local \
 #     -e gitlab_runner_token=glrt-xxxxxxxxxxxx
+#
+# Variables (see group_vars/all.yml for defaults):
+#   gitlab_url                  — GitLab instance URL
+#   gitlab_runner_token         — runner registration token (required)
+#   gitlab_runner_concurrent    — max concurrent jobs (default: 4)
+#   gitlab_runner_namespace     — K8s namespace (default: gitlab-runner)
+#   gitlab_runner_chart_version — Helm chart version (default: 0.64.0)
+#   gitlab_runner_default_image — default job container image (default: ubuntu:22.04)
 
-- name: Install GitLab Runner via Helm
+- name: Install GitLab Runner via Helm on K8s-in-Incus
   hosts: localhost
   connection: local
   gather_facts: false
+
+  pre_tasks:
+    - name: Validate runner token
+      ansible.builtin.fail:
+        msg: "gitlab_runner_token is required — pass with -e gitlab_runner_token=glrt-xxx"
+      when: gitlab_runner_token == ''
+
   tasks:
+    - name: Check Helm is available on control plane
+      ansible.builtin.command: incus exec control-plane -- helm version --short
+      register: helm_check
+      changed_when: false
+      failed_when: false
+
     - name: Install Helm on control plane
-      ansible.builtin.command: >
-        incus exec control-plane -- bash -c "
+      ansible.builtin.shell: |
+        incus exec control-plane -- bash -c '
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-        "
+        '
+      when: helm_check.rc != 0
       changed_when: true
 
     - name: Add GitLab Helm repository
-      ansible.builtin.command: >
-        incus exec control-plane -- helm repo add gitlab https://charts.gitlab.io &&
-        incus exec control-plane -- helm repo update
+      ansible.builtin.shell: |
+        incus exec control-plane -- bash -c '
+          helm repo add gitlab https://charts.gitlab.io
+          helm repo update
+        '
       changed_when: true
 
     - name: Create runner namespace
       ansible.builtin.command: >
-        incus exec control-plane -- kubectl create namespace gitlab-runner
-      changed_when: true
-      failed_when: false
+        incus exec control-plane -- kubectl create namespace {{ gitlab_runner_namespace }}
+      register: ns_create
+      changed_when: ns_create.rc == 0
+      failed_when: ns_create.rc != 0 and 'already exists' not in ns_create.stderr
 
-    - name: Install GitLab Runner chart
-      ansible.builtin.command: >
-        incus exec control-plane -- helm upgrade --install gitlab-runner gitlab/gitlab-runner
-          --namespace gitlab-runner
-          --set gitlabUrl={{ gitlab_url }}
-          --set runnerToken={{ gitlab_runner_token }}
-          --set rbac.create=true
-          --set runners.executor=kubernetes
-          --set runners.kubernetes.namespace=gitlab-runner
-          --set runners.kubernetes.image={{ gitlab_runner_default_image }}
-          --set concurrent={{ gitlab_runner_concurrent }}
+    - name: Install or upgrade GitLab Runner chart
+      ansible.builtin.shell: |
+        incus exec control-plane -- helm upgrade --install gitlab-runner gitlab/gitlab-runner \
+          --namespace {{ gitlab_runner_namespace }} \
+          --version {{ gitlab_runner_chart_version }} \
+          --set gitlabUrl={{ gitlab_url }} \
+          --set runnerToken={{ gitlab_runner_token }} \
+          --set rbac.create=true \
+          --set runners.executor=kubernetes \
+          --set runners.kubernetes.namespace={{ gitlab_runner_namespace }} \
+          --set runners.kubernetes.image={{ gitlab_runner_default_image }} \
+          --set concurrent={{ gitlab_runner_concurrent }} \
+          --wait --timeout=120s
       changed_when: true
 
-    - name: Wait for runner deployment
+    - name: Wait for runner deployment to be ready
       ansible.builtin.command: >
         incus exec control-plane -- kubectl rollout status deployment/gitlab-runner
-          -n gitlab-runner --timeout=120s
+        --namespace {{ gitlab_runner_namespace }}
+        --timeout=120s
       changed_when: false
 
-    - name: Verify runner registered
+    - name: Verify runner pod is running
+      ansible.builtin.shell: |
+        incus exec control-plane -- kubectl get pods \
+          --namespace {{ gitlab_runner_namespace }} \
+          --selector app=gitlab-runner \
+          --field-selector status.phase=Running \
+          --no-headers
+      register: runner_pods
+      changed_when: false
+      failed_when: runner_pods.stdout == ''
+
+    - name: Print runner status
       ansible.builtin.debug:
         msg: >
           GitLab Runner registered at {{ gitlab_url }}.
-          Check runners at {{ gitlab_url }}/admin/runners
+          Namespace: {{ gitlab_runner_namespace }}.
+          Running pods: {{ runner_pods.stdout_lines | length }}.
+          Check runners at {{ gitlab_url }}/-/admin/runners
