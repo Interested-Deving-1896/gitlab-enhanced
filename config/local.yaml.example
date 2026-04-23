@@ -14,3 +14,32 @@ environment:
   network: incusbr0
   # Uncomment and set when using backend: gitpod-k8s
   # gitpod_domain: gitpod.gitlab.local
+
+# Uncomment to enable the adblock-proxy network filter sidecar.
+# Run: ansible-playbook -i deploy/ansible/inventory/hosts.ini deploy/ansible/adblock.yml
+# adblock:
+#   enabled: true
+#   listen_addr: "127.0.0.1:6060"
+#   lists_dir: "/etc/adblock-proxy/lists"
+#   filter_ci: true
+#   filter_workspaces: true
+
+# Uncomment to enable opt-in BAT contributor rewards.
+# Run: gitlab-enhanced rewards serve
+# rewards:
+#   enabled: true
+#   publisher_id: "your-brave-publisher-id"
+#   wallet_address: "0xYourERC20WalletAddress"
+#   min_payout_bat: 5.0
+#   listen_addr: "127.0.0.1:6061"
+
+# Uncomment to enable the bandwidth proxy (compression + LFS dedup + artifact policies).
+# Run: gitlab-enhanced bandwidth serve
+# bandwidth:
+#   enabled: true
+#   listen_addr: "127.0.0.1:6062"
+#   upstream_gitlab: "http://gitlab.local"   # defaults to http://<gitlab.domain>
+#   compression_level: 6
+#   lfs_dedup_enabled: true
+#   artifact_max_size_mb: 500
+#   artifact_retention_days: 30

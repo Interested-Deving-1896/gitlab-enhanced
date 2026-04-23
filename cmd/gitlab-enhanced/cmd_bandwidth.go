@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/abstraction/config"
 	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/bandwidth"
 )
 
@@ -75,7 +76,7 @@ func newBandwidthServeCmd(cfgRoot *string) *cobra.Command {
 				ArtifactMaxSizeMB:     cfg.Bandwidth.ArtifactMaxSizeMB,
 				ArtifactRetentionDays: cfg.Bandwidth.ArtifactRetentionDays,
 				CacheMaxSizeGB:        cfg.Bandwidth.CacheMaxSizeGB,
-				UpstreamGitLab:        "http://" + cfg.GitLab.Domain,
+				UpstreamGitLab:        bandwidthUpstream(cfg),
 			})
 			if err != nil {
 				return err
@@ -247,4 +248,11 @@ func bandwidthAddr(addr string) string {
 		return "127.0.0.1:6062"
 	}
 	return addr
+}
+
+func bandwidthUpstream(cfg *config.Config) string {
+	if cfg.Bandwidth.UpstreamGitLab != "" {
+		return cfg.Bandwidth.UpstreamGitLab
+	}
+	return "http://" + cfg.GitLab.Domain
 }

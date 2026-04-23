@@ -68,6 +68,7 @@ rewards:
 bandwidth:
   enabled: false                   # set true to start bandwidth proxy
   listen_addr: "127.0.0.1:6062"
+  upstream_gitlab: ""              # defaults to http://<gitlab.domain>; override for non-standard ports
   compression_level: 6             # gzip level 1-9 (6 = good balance of speed/ratio)
   lfs_dedup_enabled: true          # hardlink identical LFS objects across repos
   artifact_max_size_mb: 0          # 0 = unlimited; set e.g. 500 to cap at 500 MB

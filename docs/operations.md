@@ -179,6 +179,78 @@ cp config/local.yaml config/local.yaml.bak
 cp config/cloud.yaml config/cloud.yaml.bak
 ```
 
+## Optional services
+
+### adblock-proxy
+
+```bash
+# Deploy (builds from source, downloads filter lists, installs systemd service)
+ansible-playbook -i deploy/ansible/inventory/hosts.ini deploy/ansible/adblock.yml
+
+# Check status
+gitlab-enhanced status          # shows adblock row
+gitlab-enhanced adblock status  # direct health check — not a subcommand; use:
+curl http://127.0.0.1:6060/health
+
+# Reload filter lists without restart
+curl -X POST http://127.0.0.1:6060/reload
+
+# Check a URL manually
+curl -X POST http://127.0.0.1:6060/check \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://example.com/ad.js","resource_type":"script"}'
+
+# View logs
+journalctl -u adblock-proxy -f
+```
+
+### BAT Rewards
+
+```bash
+# Enable in config/local.yaml first, then:
+gitlab-enhanced rewards serve &
+
+# Register a contributor wallet
+gitlab-enhanced rewards wallet register \
+  --username alice \
+  --wallet 0xYourERC20Address
+
+# View pending rewards
+gitlab-enhanced rewards pending
+
+# View current rates
+gitlab-enhanced rewards rates
+
+# Trigger payout
+gitlab-enhanced rewards payout
+
+# Configure GitLab system hook (Admin > System Hooks):
+#   URL: http://127.0.0.1:6061/webhook/gitlab
+#   Triggers: Merge request events, Issue events, Pipeline events
+```
+
+### Bandwidth proxy
+
+```bash
+# Enable in config/local.yaml first, then:
+gitlab-enhanced bandwidth serve &
+
+# View savings statistics
+gitlab-enhanced bandwidth stats
+
+# View artifact retention policy
+gitlab-enhanced bandwidth policy
+
+# Trigger immediate artifact eviction
+gitlab-enhanced bandwidth evict
+
+# Deduplicate a specific LFS object
+gitlab-enhanced bandwidth dedup <oid> <size-bytes>
+
+# View logs
+journalctl -u gitlab-enhanced-bandwidth -f
+```
+
 ## Troubleshooting
 
 ### GitLab not starting
@@ -220,6 +292,52 @@ incus network list-leases gitlab-enhanced-br0
 
 # Restart the network
 incus network set gitlab-enhanced-br0 ipv4.nat true
+```
+
+### adblock-proxy not starting
+
+```bash
+# Check the binary exists
+which adblock-proxy || ls /usr/local/bin/adblock-proxy
+
+# Check filter lists exist
+ls /etc/adblock-proxy/lists/
+
+# Re-run the Ansible playbook to rebuild and reinstall
+ansible-playbook -i deploy/ansible/inventory/hosts.ini deploy/ansible/adblock.yml
+
+# Check service logs
+journalctl -u adblock-proxy --no-pager -n 50
+```
+
+### Rewards service not receiving webhooks
+
+```bash
+# Verify the service is running
+curl http://127.0.0.1:6061/health
+
+# Check GitLab system hook is configured
+# Admin > System Hooks — URL must be http://127.0.0.1:6061/webhook/gitlab
+# Triggers: Merge request events, Issue events, Pipeline events
+
+# Test the webhook manually
+curl -X POST http://127.0.0.1:6061/webhook/gitlab \
+  -H 'X-Gitlab-Event: Merge Request Hook' \
+  -H 'Content-Type: application/json' \
+  -d '{"object_attributes":{"state":"merged","iid":1},"user":{"username":"alice","email":"alice@example.com"}}'
+```
+
+### Bandwidth proxy not compressing
+
+```bash
+# Verify the service is running and upstream is reachable
+curl http://127.0.0.1:6062/health
+
+# Check stats — bytes_saved should be non-zero after some traffic
+gitlab-enhanced bandwidth stats
+
+# Ensure clients send Accept-Encoding: gzip
+# The proxy only compresses when the client advertises gzip support
 ```
 
 ### CI runner not picking up jobs
