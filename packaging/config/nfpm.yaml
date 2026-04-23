@@ -1,0 +1,74 @@
+name: gitlab-enhanced
+arch: amd64
+platform: linux
+version: "${VERSION}"
+maintainer: "OpenOS Project <hello@openos.dev>"
+description: "Local-first GitLab stack manager with Incus runtime"
+homepage: "https://gitlab.com/openos-project/git-management_deving/gitlab-enhanced"
+license: MIT
+section: utils
+priority: optional
+
+contents:
+  - src: bin/gitlab-enhanced
+    dst: /usr/local/bin/gitlab-enhanced
+    file_info:
+      mode: 0755
+
+  - src: config/defaults.yaml
+    dst: /etc/gitlab-enhanced/defaults.yaml
+    type: config|noreplace
+
+  - src: runtime/incus/profiles/workspace-default.yaml
+    dst: /usr/share/gitlab-enhanced/profiles/workspace-default.yaml
+
+  - src: runtime/incus/profiles/gitlab-runner.yaml
+    dst: /usr/share/gitlab-enhanced/profiles/gitlab-runner.yaml
+
+  - src: runtime/incus/profiles/buildkit.yaml
+    dst: /usr/share/gitlab-enhanced/profiles/buildkit.yaml
+
+  - src: runtime/incus/runner/config.toml
+    dst: /usr/share/gitlab-enhanced/runner/config.toml
+    type: config|noreplace
+
+  - src: runtime/incus/runner/prepare.sh
+    dst: /usr/share/gitlab-enhanced/runner/prepare.sh
+    file_info:
+      mode: 0755
+
+  - src: runtime/incus/runner/run.sh
+    dst: /usr/share/gitlab-enhanced/runner/run.sh
+    file_info:
+      mode: 0755
+
+  - src: runtime/incus/runner/cleanup.sh
+    dst: /usr/share/gitlab-enhanced/runner/cleanup.sh
+    file_info:
+      mode: 0755
+
+  - src: deploy/local/bootstrap.sh
+    dst: /usr/share/gitlab-enhanced/bootstrap.sh
+    file_info:
+      mode: 0755
+
+scripts:
+  postinstall: packaging/scripts/postinstall.sh
+  preremove: packaging/scripts/preremove.sh
+
+overrides:
+  deb:
+    depends:
+      - incus
+      - ansible
+      - git
+      - git-lfs
+    recommends:
+      - terraform
+      - skopeo
+  rpm:
+    depends:
+      - incus
+      - ansible
+      - git
+      - git-lfs

@@ -118,6 +118,10 @@ type EnvironmentConfig struct {
 	IDEPort        int    `yaml:"ide_port"`
 	Network        string `yaml:"network"`
 	Token          string `yaml:"token"`
+	// GitpodDomain is the hostname of the Gitpod Classic installation.
+	// Gitpod runs on its own subdomain (e.g. gitpod.gitlab.local), separate
+	// from the GitLab domain. Only used when backend = "gitpod-k8s".
+	GitpodDomain string `yaml:"gitpod_domain"`
 }
 
 type CloudConfig struct {
