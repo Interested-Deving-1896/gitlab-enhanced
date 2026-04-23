@@ -1,0 +1,118 @@
+---
+# Installs and registers gitlab-runner with the Incus custom executor
+# on the local host (not inside a container — the runner manages containers).
+#
+# Usage:
+#   ansible-playbook deploy/ansible/runner.yml \
+#     -e gitlab_url=https://gitlab.local \
+#     -e gitlab_runner_token=glrt-xxxxxxxxxxxx
+#
+# Variables:
+#   gitlab_url              — GitLab instance URL (required)
+#   gitlab_runner_token     — runner registration token (required)
+#   gitlab_runner_version   — gitlab-runner version to install (default: latest)
+#   gitlab_runner_concurrent — max concurrent jobs (default: 4)
+#   gitlab_runner_tags      — comma-separated runner tags (default: incus,self-hosted)
+#   executor_install_dir    — where executor scripts are installed (default: /usr/local/lib/gitlab-runner-incus)
+#   repo_root               — path to the gitlab-enhanced repo root (default: /opt/gitlab-enhanced)
+
+- name: Install and register gitlab-runner with Incus executor
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  vars:
+    gitlab_url: ""
+    gitlab_runner_token: ""
+    gitlab_runner_version: "latest"
+    gitlab_runner_concurrent: 4
+    gitlab_runner_tags: "incus,self-hosted"
+    executor_install_dir: "/usr/local/lib/gitlab-runner-incus"
+    repo_root: "{{ playbook_dir }}/../.."
+
+  pre_tasks:
+    - name: Validate required variables
+      ansible.builtin.fail:
+        msg: "gitlab_url and gitlab_runner_token are required"
+      when: gitlab_url == '' or gitlab_runner_token == ''
+
+  tasks:
+    - name: Check if gitlab-runner is already installed
+      ansible.builtin.command: gitlab-runner --version
+      register: runner_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Install gitlab-runner
+      when: runner_installed.rc != 0
+      block:
+        - name: Add GitLab runner apt repository
+          ansible.builtin.shell: |
+            curl -fsSL https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh | bash
+          changed_when: true
+
+        - name: Install gitlab-runner package
+          ansible.builtin.apt:
+            name: "{{ 'gitlab-runner' if gitlab_runner_version == 'latest' else 'gitlab-runner=' + gitlab_runner_version }}"
+            state: present
+            update_cache: true
+
+    - name: Install Incus executor scripts
+      ansible.builtin.shell: |
+        bash {{ repo_root }}/runtime/incus/runner/install.sh
+      changed_when: true
+
+    - name: Check if runner is already registered
+      ansible.builtin.command: gitlab-runner list
+      register: runner_list
+      changed_when: false
+
+    - name: Register runner with Incus custom executor
+      ansible.builtin.command: >
+        gitlab-runner register
+        --non-interactive
+        --url "{{ gitlab_url }}"
+        --token "{{ gitlab_runner_token }}"
+        --executor custom
+        --custom-config-exec  {{ executor_install_dir }}/config.sh
+        --custom-prepare-exec {{ executor_install_dir }}/prepare.sh
+        --custom-run-exec     {{ executor_install_dir }}/run.sh
+        --custom-cleanup-exec {{ executor_install_dir }}/cleanup.sh
+        --tag-list "{{ gitlab_runner_tags }}"
+        --description "gitlab-enhanced Incus runner"
+        --run-untagged false
+      when: gitlab_url not in runner_list.stdout
+      changed_when: true
+
+    - name: Set concurrent jobs in config
+      ansible.builtin.lineinfile:
+        path: /etc/gitlab-runner/config.toml
+        regexp: '^concurrent\s*='
+        line: "concurrent = {{ gitlab_runner_concurrent }}"
+      notify: Restart gitlab-runner
+
+    - name: Ensure gitlab-runner service is running
+      ansible.builtin.systemd:
+        name: gitlab-runner
+        state: started
+        enabled: true
+
+    - name: Build CI base image
+      ansible.builtin.shell: |
+        bash {{ repo_root }}/runtime/incus/images/build-ci-base.sh
+      changed_when: true
+      register: image_build
+      failed_when: image_build.rc != 0
+
+    - name: Print runner info
+      ansible.builtin.debug:
+        msg: >
+          gitlab-runner registered at {{ gitlab_url }} with tags [{{ gitlab_runner_tags }}].
+          Executor scripts: {{ executor_install_dir }}.
+          CI base image: gitlab-enhanced/ci-base:latest.
+
+  handlers:
+    - name: Restart gitlab-runner
+      ansible.builtin.systemd:
+        name: gitlab-runner
+        state: restarted

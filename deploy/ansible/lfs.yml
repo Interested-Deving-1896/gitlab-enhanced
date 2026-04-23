@@ -1,0 +1,161 @@
+---
+# Deploys the Git LFS server (rudolfs or giftless) inside an Incus container.
+#
+# Usage:
+#   ansible-playbook deploy/ansible/lfs.yml \
+#     -e lfs_server=rudolfs \
+#     -e lfs_path=/var/lib/gitlab-enhanced/lfs
+#
+# Variables:
+#   lfs_server      — rudolfs | giftless | lfs-test-server (default: rudolfs)
+#   lfs_backend     — local | s3 (default: local)
+#   lfs_path        — storage path inside the container (default: /var/lib/lfs)
+#   lfs_port        — listen port (default: 8080)
+#   lfs_container   — Incus container name (default: lfs-server)
+#   lfs_image       — Incus base image (default: ubuntu:24.04)
+#   lfs_encryption  — enable rudolfs encryption (default: false)
+
+- name: Deploy LFS server
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    lfs_server: "rudolfs"
+    lfs_backend: "local"
+    lfs_path: "/var/lib/lfs"
+    lfs_port: 8080
+    lfs_container: "lfs-server"
+    lfs_image: "ubuntu:24.04"
+    lfs_encryption: false
+    lfs_host_data_dir: "/var/lib/gitlab-enhanced/lfs"
+
+  tasks:
+    - name: Ensure host data directory exists
+      ansible.builtin.file:
+        path: "{{ lfs_host_data_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check if container already exists
+      ansible.builtin.command: incus info {{ lfs_container }}
+      register: container_info
+      changed_when: false
+      failed_when: false
+
+    - name: Launch LFS container
+      ansible.builtin.command: >
+        incus launch {{ lfs_image }} {{ lfs_container }} --profile default
+      when: container_info.rc != 0
+      changed_when: true
+
+    - name: Wait for container to be ready
+      ansible.builtin.command: incus exec {{ lfs_container }} -- systemctl is-system-running
+      register: system_state
+      until: system_state.stdout in ['running', 'degraded']
+      retries: 20
+      delay: 5
+      changed_when: false
+
+    - name: Install prerequisites
+      ansible.builtin.shell: |
+        incus exec {{ lfs_container }} -- bash -c '
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq curl ca-certificates
+        '
+      changed_when: true
+
+    - name: Create LFS storage directory
+      ansible.builtin.shell: |
+        incus exec {{ lfs_container }} -- mkdir -p {{ lfs_path }}
+      changed_when: true
+
+    - name: Install rudolfs
+      when: lfs_server == 'rudolfs'
+      ansible.builtin.shell: |
+        incus exec {{ lfs_container }} -- bash -c '
+          if command -v rudolfs &>/dev/null; then exit 0; fi
+          RUDOLFS_VERSION=0.3.7
+          ARCH=$(uname -m | sed "s/x86_64/x86_64-unknown-linux-musl/;s/aarch64/aarch64-unknown-linux-musl/")
+          curl -fsSL "https://github.com/jasonwhite/rudolfs/releases/download/v${RUDOLFS_VERSION}/rudolfs-${ARCH}.tar.gz" \
+            | tar -xz -C /usr/local/bin rudolfs
+          chmod +x /usr/local/bin/rudolfs
+        '
+      changed_when: true
+
+    - name: Install giftless
+      when: lfs_server == 'giftless'
+      ansible.builtin.shell: |
+        incus exec {{ lfs_container }} -- bash -c '
+          apt-get install -y -qq python3 python3-pip
+          pip3 install giftless
+        '
+      changed_when: true
+
+    - name: Write rudolfs systemd unit
+      when: lfs_server == 'rudolfs'
+      ansible.builtin.shell: |
+        incus exec {{ lfs_container }} -- bash -c '
+          cat > /etc/systemd/system/lfs-server.service <<EOF
+        [Unit]
+        Description=rudolfs Git LFS server
+        After=network.target
+
+        [Service]
+        ExecStart=/usr/local/bin/rudolfs \
+          --host 0.0.0.0:{{ lfs_port }} \
+          --cache-dir {{ lfs_path }} \
+          {% if lfs_encryption %}--encrypt{% endif %}
+        Restart=always
+        RestartSec=5
+
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+          systemctl daemon-reload
+          systemctl enable --now lfs-server
+        '
+      changed_when: true
+
+    - name: Write giftless systemd unit
+      when: lfs_server == 'giftless'
+      ansible.builtin.shell: |
+        incus exec {{ lfs_container }} -- bash -c '
+          cat > /etc/systemd/system/lfs-server.service <<EOF
+        [Unit]
+        Description=giftless Git LFS server
+        After=network.target
+
+        [Service]
+        ExecStart=/usr/local/bin/giftless-server \
+          --host 0.0.0.0 \
+          --port {{ lfs_port }} \
+          --storage-path {{ lfs_path }}
+        Restart=always
+        RestartSec=5
+
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+          systemctl daemon-reload
+          systemctl enable --now lfs-server
+        '
+      changed_when: true
+
+    - name: Wait for LFS server to be listening
+      ansible.builtin.shell: |
+        incus exec {{ lfs_container }} -- bash -c '
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:{{ lfs_port }}/ && exit 0
+            sleep 3
+          done
+          exit 1
+        '
+      changed_when: false
+
+    - name: Print LFS server info
+      ansible.builtin.debug:
+        msg: >
+          LFS server ({{ lfs_server }}) running in container {{ lfs_container }}
+          on port {{ lfs_port }}. Storage: {{ lfs_path }}.
