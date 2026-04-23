@@ -1,0 +1,57 @@
+# gitlab-runner configuration for the Incus custom executor.
+#
+# Each CI job launches a fresh Incus container, runs the job inside it,
+# then deletes the container on completion.
+#
+# Setup:
+#   1. Install gitlab-runner on the host (see README.md)
+#   2. Copy this file to /etc/gitlab-runner/config.toml (or --config path)
+#   3. Fill in the token from your GitLab project/group runner registration
+#   4. Run: gitlab-runner start
+#
+# The executor scripts live alongside this file in runtime/incus/runner/.
+# They are installed to EXECUTOR_DIR by the bootstrap (see README.md).
+
+concurrent = 4          # max parallel jobs across all runners on this host
+check_interval = 0      # poll GitLab every 3s (default when 0)
+shutdown_timeout = 30   # seconds to wait for running jobs on SIGTERM
+
+[session_server]
+  session_timeout = 1800
+
+[[runners]]
+  name = "gitlab-enhanced-incus"
+  url = "https://gitlab.com"
+  token = "REPLACE_WITH_RUNNER_TOKEN"   # set after: gitlab-runner register
+
+  executor = "custom"
+  builds_dir = "/builds"
+  cache_dir  = "/cache"
+
+  # Tags control which jobs this runner picks up.
+  # Jobs tagged [incus] route here; untagged jobs go to shared runners.
+  tag_list = ["incus", "self-hosted"]
+  run_untagged = false
+
+  [runners.custom]
+    # Absolute paths to the executor lifecycle scripts.
+    # These are installed by deploy/local/bootstrap.sh or manually (see README.md).
+    config_exec  = "/usr/local/lib/gitlab-runner-incus/config.sh"
+    config_args  = []
+    prepare_exec = "/usr/local/lib/gitlab-runner-incus/prepare.sh"
+    prepare_args = []
+    run_exec     = "/usr/local/lib/gitlab-runner-incus/run.sh"
+    run_args     = []
+    cleanup_exec = "/usr/local/lib/gitlab-runner-incus/cleanup.sh"
+    cleanup_args = []
+
+  [runners.custom_build_dir]
+    enabled = true
+
+  [runners.cache]
+    Type   = "local"
+    Shared = false
+
+    [runners.cache.local]
+      # Host path for the job cache. Mounted into each container at /cache.
+      Path = "/var/cache/gitlab-runner"

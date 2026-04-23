@@ -32,11 +32,11 @@
         incus exec control-plane -- kubectl label node {{ item.node }} {{ item.label }}=true
           --overwrite
       loop:
-        - { node: control-plane, label: gitpod.io/workload_meta }
-        - { node: control-plane, label: gitpod.io/workload_ide }
-        - { node: control-plane, label: gitpod.io/workload_services }
-        - { node: worker-1,      label: gitpod.io/workload_workspace_regular }
-        - { node: worker-1,      label: gitpod.io/workload_workspace_headless }
+        - {node: control-plane, label: gitpod.io/workload_meta}
+        - {node: control-plane, label: gitpod.io/workload_ide}
+        - {node: control-plane, label: gitpod.io/workload_services}
+        - {node: worker-1, label: gitpod.io/workload_workspace_regular}
+        - {node: worker-1, label: gitpod.io/workload_workspace_headless}
       changed_when: true
       failed_when: false
 

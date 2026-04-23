@@ -39,6 +39,7 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   fail "This script only supports Linux. For macOS, use a remote Incus host."
 fi
 
+# shellcheck source=/dev/null
 . /etc/os-release
 if [[ "$ID" != "ubuntu" && "$ID" != "debian" ]]; then
   warn "Detected OS: $PRETTY_NAME — only Ubuntu/Debian are tested. Proceeding anyway."
