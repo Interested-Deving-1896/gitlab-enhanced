@@ -71,16 +71,16 @@ func (r *IncusRunner) Run(ctx context.Context, job JobSpec, logs io.Writer) (*Jo
 
 	// Launch ephemeral VM
 	op, err := conn.CreateInstance(api.InstancesPost{
-		Name:      vmName,
-		Type:      api.InstanceTypeVM,
-		Ephemeral: true,
+		Name: vmName,
+		Type: api.InstanceTypeVM,
 		Source: api.InstanceSource{
 			Type:  "image",
 			Alias: job.Image,
 		},
 		InstancePut: api.InstancePut{
-			Profiles: []string{"default", r.vmProfile},
-			Config:   r.buildConfig(job),
+			Ephemeral: true,
+			Profiles:  []string{"default", r.vmProfile},
+			Config:    r.buildConfig(job),
 		},
 	})
 	if err != nil {

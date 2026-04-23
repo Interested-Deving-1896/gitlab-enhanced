@@ -152,3 +152,6 @@
 	path = utils/mirrord
 	url = https://github.com/metalbear-co/mirrord.git
 	branch = main
+[submodule "tools/linux2ipfs"]
+	path = tools/linux2ipfs
+	url = https://github.com/Jorropo/linux2ipfs.git
