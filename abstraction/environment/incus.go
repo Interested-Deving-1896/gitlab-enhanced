@@ -99,6 +99,7 @@ func (m *IncusManager) Create(ctx context.Context, spec Spec) (*Environment, err
 				"user.gitlab-enhanced.branch":               spec.Branch,
 				"user.gitlab-enhanced.ide":                  spec.IDE,
 				"user.gitlab-enhanced.devcontainer-path":    spec.DevcontainerPath,
+				"user.gitlab-enhanced.host-addr":            "localhost",
 			},
 			Devices: map[string]map[string]string{
 				"workspace": {
@@ -275,11 +276,12 @@ func (m *IncusManager) waitReady(ctx context.Context, conn incus.InstanceServer,
 			return ctx.Err()
 		default:
 		}
-		_, err := conn.ExecInstance(name, api.InstanceExecPost{
+		op, err := conn.ExecInstance(name, api.InstanceExecPost{
 			Command:   []string{"systemctl", "is-system-running"},
-			WaitForWS: true,
+			WaitForWS: false,
 		}, nil)
 		if err == nil {
+			_ = op.Wait()
 			return nil
 		}
 		time.Sleep(2 * time.Second)
@@ -293,11 +295,14 @@ func (m *IncusManager) cloneRepo(_ context.Context, conn incus.InstanceServer, n
 	if spec.Branch != "" {
 		cloneCmd = fmt.Sprintf("git clone --branch %s %s /workspace/repo", spec.Branch, spec.RepoURL)
 	}
-	_, err := conn.ExecInstance(name, api.InstanceExecPost{
+	op, err := conn.ExecInstance(name, api.InstanceExecPost{
 		Command:   []string{"bash", "-c", cloneCmd},
-		WaitForWS: true,
+		WaitForWS: false,
 	}, nil)
-	return err
+	if err != nil {
+		return err
+	}
+	return op.Wait()
 }
 
 // startIDE launches the IDE process inside the container.
@@ -324,11 +329,33 @@ func (m *IncusManager) startIDE(_ context.Context, conn incus.InstanceServer, na
 		)
 	}
 
-	_, err := conn.ExecInstance(name, api.InstanceExecPost{
-		Command:   []string{"bash", "-c", startCmd},
-		WaitForWS: true,
+	// Write a systemd unit so the IDE survives container restarts.
+	unitContent := fmt.Sprintf(`[Unit]
+Description=OpenVSCode Server
+After=network.target
+
+[Service]
+ExecStart=%s
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+`, startCmd)
+
+	writeAndStart := fmt.Sprintf(
+		"printf '%%s' %q > /etc/systemd/system/openvscode-server.service && "+
+			"systemctl daemon-reload && systemctl enable --now openvscode-server",
+		unitContent,
+	)
+	op, err := conn.ExecInstance(name, api.InstanceExecPost{
+		Command:   []string{"bash", "-c", writeAndStart},
+		WaitForWS: false,
 	}, nil)
-	return err
+	if err != nil {
+		return err
+	}
+	return op.Wait()
 }
 
 // addProxyDevice adds an Incus proxy device that forwards a random host port
@@ -359,15 +386,38 @@ func (m *IncusManager) addProxyDevice(conn incus.InstanceServer, name string) (i
 }
 
 // instanceToEnv converts an Incus instance to an Environment.
+// It reconstructs the IDE URL from the ide-proxy device if present.
 func (m *IncusManager) instanceToEnv(inst *api.Instance) *Environment {
 	id := inst.Config["user.gitlab-enhanced.env-id"]
 	if id == "" {
 		id = inst.Name
 	}
 	status := StatusStopped
-	if inst.Status == "Running" {
+	switch inst.Status {
+	case "Running":
 		status = StatusRunning
+	case "Starting":
+		status = StatusStarting
+	case "Error":
+		status = StatusError
 	}
+
+	// Reconstruct IDE URL from the proxy device listen address.
+	ideURL := ""
+	if proxy, ok := inst.Devices["ide-proxy"]; ok {
+		// listen is "tcp:0.0.0.0:<port>" — extract the port.
+		listen := proxy["listen"]
+		if idx := strings.LastIndex(listen, ":"); idx >= 0 {
+			port := listen[idx+1:]
+			// Use the host's network address; fall back to localhost.
+			host := inst.Config["user.gitlab-enhanced.host-addr"]
+			if host == "" {
+				host = "localhost"
+			}
+			ideURL = fmt.Sprintf("http://%s:%s", host, port)
+		}
+	}
+
 	return &Environment{
 		ID: id,
 		Spec: Spec{
@@ -377,6 +427,7 @@ func (m *IncusManager) instanceToEnv(inst *api.Instance) *Environment {
 			IDE:     inst.Config["user.gitlab-enhanced.ide"],
 		},
 		Status:  status,
+		IDEURL:  ideURL,
 		Created: inst.CreatedAt,
 	}
 }
