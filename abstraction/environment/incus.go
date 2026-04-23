@@ -305,47 +305,45 @@ func (m *IncusManager) cloneRepo(_ context.Context, conn incus.InstanceServer, n
 	return op.Wait()
 }
 
-// startIDE launches the IDE process inside the container.
-// supervisor reads devcontainer.json or .gitpod.yml and starts the IDE.
+// startIDE writes a systemd unit for the IDE and enables it.
+// ExecStart must be a plain executable + arguments — no shell syntax (nohup, &, redirects).
+// Systemd handles daemonisation and log capture via journald natively.
 func (m *IncusManager) startIDE(_ context.Context, conn incus.InstanceServer, name string, spec Spec) error {
 	ide := spec.IDE
 	if ide == "" {
 		ide = "openvscode-server"
 	}
 
-	var startCmd string
+	var execStart string
 	switch ide {
 	case "openvscode-server":
-		startCmd = fmt.Sprintf(
-			"nohup /usr/local/bin/openvscode-server --host 0.0.0.0 --port %d "+
-				"--without-connection-token --default-folder /workspace/repo "+
-				"> /var/log/ide.log 2>&1 &",
+		execStart = fmt.Sprintf(
+			"/usr/local/bin/openvscode-server --host 0.0.0.0 --port %d --without-connection-token --default-folder /workspace/repo",
 			m.idePort,
 		)
 	default:
-		startCmd = fmt.Sprintf(
-			"nohup supervisor --ide %s --port %d > /var/log/ide.log 2>&1 &",
-			ide, m.idePort,
-		)
+		// supervisor binary (from environments/supervisor) reads devcontainer.json / .gitpod.yml
+		execStart = fmt.Sprintf("/usr/local/bin/supervisor --ide %s --port %d", ide, m.idePort)
 	}
 
-	// Write a systemd unit so the IDE survives container restarts.
 	unitContent := fmt.Sprintf(`[Unit]
-Description=OpenVSCode Server
+Description=IDE (%s)
 After=network.target
 
 [Service]
 ExecStart=%s
 Restart=always
 RestartSec=3
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-`, startCmd)
+`, ide, execStart)
 
 	writeAndStart := fmt.Sprintf(
-		"printf '%%s' %q > /etc/systemd/system/openvscode-server.service && "+
-			"systemctl daemon-reload && systemctl enable --now openvscode-server",
+		"printf '%%s' %q > /etc/systemd/system/ide.service && "+
+			"systemctl daemon-reload && systemctl enable --now ide",
 		unitContent,
 	)
 	op, err := conn.ExecInstance(name, api.InstanceExecPost{

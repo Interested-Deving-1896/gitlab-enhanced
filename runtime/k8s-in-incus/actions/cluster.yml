@@ -1,0 +1,57 @@
+# GitLab CI job templates for K8s-in-Incus cluster lifecycle.
+# Include this file and extend the hidden jobs below.
+#
+# Usage:
+#   include:
+#     - local: runtime/k8s-in-incus/actions/cluster.yml
+
+variables:
+  K8S_INCUS_HOST: "localhost"
+  K8S_NODE_COUNT: "3"
+  K8S_CONTROL_COUNT: "1"
+  ANSIBLE_DIR: "runtime/k8s-in-incus/ansible"
+
+# Provision a K8s cluster inside Incus VMs.
+.k8s-incus-provision:
+  stage: deploy
+  image: cytopia/ansible:latest
+  before_script:
+    - ansible --version
+    - ansible-galaxy collection install community.general kubernetes.core
+  script:
+    - ansible-playbook
+        -i "${ANSIBLE_DIR}/inventory"
+        -e "node_count=${K8S_NODE_COUNT}"
+        -e "control_count=${K8S_CONTROL_COUNT}"
+        "${ANSIBLE_DIR}/playbooks/k8s-cluster.yml"
+  artifacts:
+    paths:
+      - runtime/k8s-in-incus/ansible/kubeconfig.yaml
+    expire_in: 7 days
+  environment:
+    name: k8s-incus
+    action: start
+
+# Tear down the K8s cluster and all Incus VMs.
+.k8s-incus-destroy:
+  stage: deploy
+  image: cytopia/ansible:latest
+  when: manual
+  script:
+    - ansible-playbook
+        -i "${ANSIBLE_DIR}/inventory"
+        "${ANSIBLE_DIR}/playbooks/k8s-cleanup.yml"
+  environment:
+    name: k8s-incus
+    action: stop
+
+# Run kubectl commands against the provisioned cluster.
+.k8s-incus-kubectl:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  before_script:
+    - mkdir -p ~/.kube
+    - cp runtime/k8s-in-incus/ansible/kubeconfig.yaml ~/.kube/config
+  needs:
+    - job: provision-k8s
+      artifacts: true

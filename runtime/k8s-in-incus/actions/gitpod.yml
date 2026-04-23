@@ -1,0 +1,63 @@
+# GitLab CI job templates for Gitpod Classic deployment on K8s-in-Incus.
+# Include this file and extend the hidden jobs below.
+#
+# Usage:
+#   include:
+#     - local: runtime/k8s-in-incus/actions/cluster.yml
+#     - local: runtime/k8s-in-incus/actions/gitpod.yml
+
+variables:
+  GITPOD_VERSION: "latest"
+  ANSIBLE_DIR: "runtime/k8s-in-incus/ansible"
+
+# Deploy Gitpod Classic onto the K8s cluster.
+.gitpod-deploy:
+  stage: deploy
+  image: cytopia/ansible:latest
+  before_script:
+    - ansible-galaxy collection install community.general kubernetes.core
+  script:
+    - ansible-playbook
+        -i "${ANSIBLE_DIR}/inventory"
+        -e "gitpod_version=${GITPOD_VERSION}"
+        -e "gitlab_url=${GITLAB_URL}"
+        "${ANSIBLE_DIR}/playbooks/k8s-gitpod.yml"
+  needs:
+    - job: provision-k8s
+      artifacts: true
+  environment:
+    name: gitpod
+    url: "https://gitpod.${GITLAB_DOMAIN}"
+    action: start
+
+# Deploy the GitLab runner on K8s.
+.gitlab-runner-k8s-deploy:
+  stage: deploy
+  image: cytopia/ansible:latest
+  script:
+    - ansible-playbook
+        -i "${ANSIBLE_DIR}/inventory"
+        -e "gitlab_url=${GITLAB_URL}"
+        -e "runner_token=${GITLAB_RUNNER_TOKEN}"
+        "${ANSIBLE_DIR}/playbooks/k8s-gitlab-runner.yml"
+  needs:
+    - job: provision-k8s
+      artifacts: true
+
+# Remove Gitpod from the cluster (leaves the cluster intact).
+.gitpod-undeploy:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  when: manual
+  before_script:
+    - mkdir -p ~/.kube
+    - cp runtime/k8s-in-incus/ansible/kubeconfig.yaml ~/.kube/config
+  script:
+    - kubectl delete namespace gitpod --ignore-not-found
+    - kubectl delete namespace cert-manager --ignore-not-found
+  needs:
+    - job: provision-k8s
+      artifacts: true
+  environment:
+    name: gitpod
+    action: stop

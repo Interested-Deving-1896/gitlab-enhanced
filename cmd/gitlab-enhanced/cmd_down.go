@@ -32,11 +32,6 @@ Use --with-k8s to also tear down the K8s-in-Incus cluster.`,
 }
 
 func runDown(root string, withK8s, force bool) error {
-	stopFlag := "stop"
-	if force {
-		stopFlag = "--force"
-	}
-
 	services := []string{
 		"gitlab-enhanced-gitlab",
 		"gitlab-enhanced-lfs",
@@ -50,9 +45,9 @@ func runDown(root string, withK8s, force bool) error {
 			printInfo(fmt.Sprintf("%s not running", svc))
 			continue
 		}
-		args := []string{stopFlag, svc}
+		args := []string{"stop", svc}
 		if force {
-			args = []string{"stop", svc, "--force"}
+			args = append(args, "--force")
 		}
 		if err := runCmd("incus", args...); err != nil {
 			printWarn(fmt.Sprintf("could not stop %s: %v", svc, err))
