@@ -5,7 +5,16 @@
 #   - Linux VM (Ubuntu 24.04) with GitLab via custom_data
 #   - Azure Blob Storage account for object storage (LFS, artefacts, registry)
 #   - Public IP + DNS label (optional Azure DNS zone record)
-#   - Managed identity for VM → Storage access (no static credentials)
+#   - Managed identity for VM → Storage access
+#   - SAS token (generated at apply time) for GitLab Omnibus object storage
+#
+# Object storage credential strategy:
+#   GitLab Omnibus uses the Fog gem for Azure blob storage, which requires
+#   either an account key or a SAS token — managed identity is not yet
+#   supported by Fog. A SAS token is generated here at apply time with a
+#   configurable expiry (default: 1 year). It is injected into cloud-init
+#   and stored in /etc/gitlab/gitlab.rb on the VM only — never in source
+#   control. Rotate by re-running terraform apply with a new sas_expiry.
 #
 # Usage:
 #   cd deploy/terraform/azure
@@ -84,6 +93,12 @@ variable "dns_zone_resource_group" {
   description = "Resource group containing the DNS zone (required if dns_zone_name is set)"
   type        = string
   default     = ""
+}
+
+variable "sas_expiry_years" {
+  description = "Validity period for the generated SAS token in years (rotate by re-applying)"
+  type        = number
+  default     = 1
 }
 
 variable "tags" {
@@ -214,6 +229,51 @@ resource "azurerm_storage_container" "gitlab" {
   container_access_type = "private"
 }
 
+# ── SAS token for GitLab Omnibus object storage ───────────────────────────────
+# Generated at apply time; injected into cloud-init only.
+# Fog gem (used by GitLab) requires a key or SAS — managed identity not yet supported.
+# Rotate: terraform apply (generates a new token, triggers VM custom_data update).
+
+locals {
+  sas_start  = timestamp()
+  sas_expiry = timeadd(timestamp(), "${var.sas_expiry_years * 8760}h")
+}
+
+data "azurerm_storage_account_sas" "gitlab" {
+  connection_string = azurerm_storage_account.gitlab.primary_connection_string
+  https_only        = true
+  signed_version    = "2022-11-02"
+
+  resource_types {
+    service   = true
+    container = true
+    object    = true
+  }
+
+  services {
+    blob  = true
+    queue = false
+    table = false
+    file  = false
+  }
+
+  start  = local.sas_start
+  expiry = local.sas_expiry
+
+  permissions {
+    read    = true
+    write   = true
+    delete  = true
+    list    = true
+    add     = true
+    create  = true
+    update  = false
+    process = false
+    tag     = false
+    filter  = false
+  }
+}
+
 # ── Managed identity ──────────────────────────────────────────────────────────
 
 resource "azurerm_user_assigned_identity" "gitlab" {
@@ -269,6 +329,9 @@ resource "azurerm_linux_virtual_machine" "gitlab" {
     gitlab_edition       = var.gitlab_edition
     storage_account_name = azurerm_storage_account.gitlab.name
     storage_container    = azurerm_storage_container.gitlab.name
+    # SAS token is sensitive — only written to /etc/gitlab/gitlab.rb on the VM.
+    # It never appears in source control or Terraform plan output (marked sensitive below).
+    storage_sas_token    = data.azurerm_storage_account_sas.gitlab.sas
   }))
 
   lifecycle {
@@ -313,4 +376,15 @@ output "storage_container" {
 output "ssh_command" {
   description = "SSH command to connect to the VM"
   value       = "ssh ubuntu@${azurerm_public_ip.gitlab.ip_address}"
+}
+
+output "sas_expiry" {
+  description = "SAS token expiry date — re-apply before this date to rotate"
+  value       = local.sas_expiry
+}
+
+output "storage_sas_token" {
+  description = "SAS token injected into GitLab config (sensitive — not shown in plan)"
+  value       = data.azurerm_storage_account_sas.gitlab.sas
+  sensitive   = true
 }
