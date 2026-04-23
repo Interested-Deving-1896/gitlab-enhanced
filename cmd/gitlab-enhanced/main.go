@@ -41,6 +41,8 @@ Configuration is loaded from (later overrides earlier):
 		newEnvCmd(&cfgRoot),
 		newLFSCmd(&cfgRoot),
 		newStatusCmd(&cfgRoot),
+		newRewardsCmd(&cfgRoot),
+		newBandwidthCmd(&cfgRoot),
 	)
 
 	return root
