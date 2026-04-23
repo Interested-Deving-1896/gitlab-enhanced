@@ -26,6 +26,9 @@ type Config struct {
 	Environment EnvironmentConfig `yaml:"environment"`
 	Cloud       CloudConfig       `yaml:"cloud"`
 	Registry    RegistryConfig    `yaml:"registry"`
+	Adblock     AdblockConfig     `yaml:"adblock"`
+	Rewards     RewardsConfig     `yaml:"rewards"`
+	Bandwidth   BandwidthConfig   `yaml:"bandwidth"`
 }
 
 type GitLabConfig struct {
@@ -134,6 +137,57 @@ type RegistryConfig struct {
 	URL     string `yaml:"url"`
 }
 
+// AdblockConfig controls the adblock-proxy sidecar.
+type AdblockConfig struct {
+	// Enabled controls whether adblock-proxy is started by `gitlab-enhanced up`.
+	Enabled bool `yaml:"enabled"`
+	// ListenAddr is the address adblock-proxy binds to.
+	ListenAddr string `yaml:"listen_addr"`
+	// ListsDir is the directory containing EasyList-format .txt filter lists.
+	ListsDir string `yaml:"lists_dir"`
+	// FilterCI enables URL filtering for outbound CI job network requests.
+	FilterCI bool `yaml:"filter_ci"`
+	// FilterWorkspaces enables URL filtering for workspace container traffic.
+	FilterWorkspaces bool `yaml:"filter_workspaces"`
+}
+
+// RewardsConfig controls the opt-in BAT rewards service.
+type RewardsConfig struct {
+	// Enabled must be explicitly set to true to activate the rewards service.
+	// Nothing calls the BAT/Ethereum APIs unless this is true.
+	Enabled bool `yaml:"enabled"`
+	// PublisherID is the Brave publisher verification ID for this GitLab instance.
+	PublisherID string `yaml:"publisher_id"`
+	// WalletAddress is the ERC-20 wallet address that receives BAT contributions.
+	WalletAddress string `yaml:"wallet_address"`
+	// UpholdClientID and UpholdClientSecret are for Uphold custodial wallet API.
+	// Leave empty to use non-custodial on-chain transfers only.
+	UpholdClientID     string `yaml:"uphold_client_id"`
+	UpholdClientSecret string `yaml:"uphold_client_secret"`
+	// MinPayoutBAT is the minimum BAT balance before an automatic payout is triggered.
+	MinPayoutBAT float64 `yaml:"min_payout_bat"`
+	// ListenAddr is the address the rewards HTTP service binds to.
+	ListenAddr string `yaml:"listen_addr"`
+}
+
+// BandwidthConfig controls the server-side bandwidth management service.
+type BandwidthConfig struct {
+	// Enabled controls whether the bandwidth manager is active.
+	Enabled bool `yaml:"enabled"`
+	// ListenAddr is the address the bandwidth proxy binds to.
+	ListenAddr string `yaml:"listen_addr"`
+	// CompressionLevel sets gzip compression level (1-9, 0=disabled).
+	CompressionLevel int `yaml:"compression_level"`
+	// LFSDedupEnabled enables content-addressed deduplication for LFS objects.
+	LFSDedupEnabled bool `yaml:"lfs_dedup_enabled"`
+	// ArtifactMaxSizeMB is the maximum size for a single CI artifact in MB (0=unlimited).
+	ArtifactMaxSizeMB int `yaml:"artifact_max_size_mb"`
+	// ArtifactRetentionDays is how long CI artifacts are kept before deletion (0=forever).
+	ArtifactRetentionDays int `yaml:"artifact_retention_days"`
+	// CacheMaxSizeGB is the maximum total size of the CI cache in GB (0=unlimited).
+	CacheMaxSizeGB int `yaml:"cache_max_size_gb"`
+}
+
 // Load reads and merges configuration from the standard locations.
 // root is the repository root directory.
 func Load(root string) (*Config, error) {
@@ -196,10 +250,18 @@ func applyEnvOverrides(cfg *Config) {
 		}
 	}
 	// Boolean overrides
-	if v := strings.ToLower(os.Getenv("GITLAB_ENHANCED_CLOUD_ENABLED")); v == "true" || v == "1" {
-		cfg.Cloud.Enabled = true
-	}
-	if v := strings.ToLower(os.Getenv("GITLAB_ENHANCED_IPFS_ENABLED")); v == "true" || v == "1" {
-		cfg.IPFS.Enabled = true
+	for _, pair := range []struct {
+		env   string
+		field *bool
+	}{
+		{"GITLAB_ENHANCED_CLOUD_ENABLED", &cfg.Cloud.Enabled},
+		{"GITLAB_ENHANCED_IPFS_ENABLED", &cfg.IPFS.Enabled},
+		{"GITLAB_ENHANCED_ADBLOCK_ENABLED", &cfg.Adblock.Enabled},
+		{"GITLAB_ENHANCED_REWARDS_ENABLED", &cfg.Rewards.Enabled},
+		{"GITLAB_ENHANCED_BANDWIDTH_ENABLED", &cfg.Bandwidth.Enabled},
+	} {
+		if v := strings.ToLower(os.Getenv(pair.env)); v == "true" || v == "1" {
+			*pair.field = true
+		}
 	}
 }

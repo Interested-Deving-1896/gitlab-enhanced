@@ -1,0 +1,144 @@
+---
+# Deploy adblock-proxy sidecar on the host.
+# Builds from source (requires Rust toolchain) and installs as a systemd service.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.ini deploy/ansible/adblock.yml
+#
+# Variables:
+#   adblock_listen:    listen address (default: 127.0.0.1:6060)
+#   adblock_lists_dir: filter list directory (default: /etc/adblock-proxy/lists)
+#   adblock_repo_root: path to gitlab-enhanced repo (default: current dir)
+
+- name: Deploy adblock-proxy
+  hosts: localhost
+  connection: local
+  become: true
+  vars:
+    adblock_listen: "127.0.0.1:6060"
+    adblock_lists_dir: "/etc/adblock-proxy/lists"
+    adblock_repo_root: "{{ playbook_dir }}/../.."
+
+  tasks:
+    - name: Ensure Rust toolchain is installed
+      ansible.builtin.shell: |
+        if ! command -v cargo &>/dev/null; then
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path
+          echo 'source $HOME/.cargo/env' >> /etc/profile.d/rust.sh
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Build adblock-proxy
+      ansible.builtin.shell: |
+        source "$HOME/.cargo/env" 2>/dev/null || true
+        cd "{{ adblock_repo_root }}/utils/adblock-proxy"
+        cargo build --release 2>&1
+      args:
+        executable: /bin/bash
+      register: build_result
+      changed_when: "'Compiling' in build_result.stdout"
+
+    - name: Install adblock-proxy binary
+      ansible.builtin.copy:
+        src: "{{ adblock_repo_root }}/utils/adblock-proxy/target/release/adblock-proxy"
+        dest: /usr/local/bin/adblock-proxy
+        mode: "0755"
+        remote_src: true
+
+    - name: Create filter lists directory
+      ansible.builtin.file:
+        path: "{{ adblock_lists_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download EasyList
+      ansible.builtin.get_url:
+        url: https://easylist.to/easylist/easylist.txt
+        dest: "{{ adblock_lists_dir }}/easylist.txt"
+        mode: "0644"
+        timeout: 30
+      ignore_errors: true
+
+    - name: Download EasyPrivacy
+      ansible.builtin.get_url:
+        url: https://easylist.to/easylist/easyprivacy.txt
+        dest: "{{ adblock_lists_dir }}/easyprivacy.txt"
+        mode: "0644"
+        timeout: 30
+      ignore_errors: true
+
+    - name: Download uBlock Origin filters
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt
+        dest: "{{ adblock_lists_dir }}/ublock-filters.txt"
+        mode: "0644"
+        timeout: 30
+      ignore_errors: true
+
+    - name: Install adblock-proxy systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/adblock-proxy.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=adblock-proxy filter sidecar
+          After=network.target
+
+          [Service]
+          ExecStart=/usr/local/bin/adblock-proxy \
+            --listen {{ adblock_listen }} \
+            --lists-dir {{ adblock_lists_dir }}
+          Restart=always
+          RestartSec=3
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Install filter list update service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/adblock-proxy-update.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Update adblock-proxy filter lists
+
+          [Service]
+          Type=oneshot
+          ExecStart=/bin/bash -c '\
+            curl -fsSL https://easylist.to/easylist/easylist.txt \
+              -o {{ adblock_lists_dir }}/easylist.txt && \
+            curl -fsSL https://easylist.to/easylist/easyprivacy.txt \
+              -o {{ adblock_lists_dir }}/easyprivacy.txt && \
+            curl -sf -X POST http://{{ adblock_listen }}/reload'
+
+    - name: Install filter list update timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/adblock-proxy-update.timer
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Weekly adblock filter list update
+
+          [Timer]
+          OnCalendar=weekly
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Enable and start adblock-proxy
+      ansible.builtin.systemd:
+        name: adblock-proxy
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Enable filter list update timer
+      ansible.builtin.systemd:
+        name: adblock-proxy-update.timer
+        enabled: true
+        state: started

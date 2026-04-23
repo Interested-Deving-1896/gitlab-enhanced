@@ -155,3 +155,6 @@
 [submodule "tools/linux2ipfs"]
 	path = tools/linux2ipfs
 	url = https://github.com/Jorropo/linux2ipfs.git
+[submodule "utils/adblock-rust"]
+	path = utils/adblock-rust
+	url = https://github.com/brave/adblock-rust.git
