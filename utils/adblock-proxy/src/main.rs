@@ -1,16 +1,10 @@
 /// adblock-proxy — HTTP sidecar for adblock-rust network filtering.
 ///
-/// Exposes two endpoints:
+/// Exposes four endpoints:
 ///   POST /check   — check whether a URL should be blocked
 ///   POST /reload  — reload filter lists from disk
 ///   GET  /health  — liveness probe
-///   GET  /stats   — engine statistics
-///
-/// Designed to be called from:
-///   - The Incus runner executor (runtime/incus/runner/run.sh) to filter
-///     outbound CI job network requests
-///   - The workspace Nginx proxy to filter requests from workspace containers
-///   - The GitLab Nginx proxy to filter webhook/package registry traffic
+///   GET  /stats   — engine statistics (rules loaded, requests checked, blocks)
 use adblock::{
     lists::{FilterSet, ParseOptions, RuleTypes},
     request::Request,
@@ -20,215 +14,198 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
-    io::Read,
+    io::{Read, Write},
     path::PathBuf,
-    sync::{Arc, RwLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, RwLock,
+    },
 };
 use tiny_http::{Method, Response, Server};
 
 #[derive(Parser, Debug)]
 #[command(name = "adblock-proxy", about = "adblock-rust HTTP sidecar for gitlab-enhanced")]
 struct Args {
-    /// Address to listen on
     #[arg(long, default_value = "127.0.0.1:6060")]
     listen: String,
-
-    /// Directory containing filter list files (*.txt, EasyList/uBlock format)
     #[arg(long, default_value = "/etc/adblock-proxy/lists")]
     lists_dir: PathBuf,
-
-    /// Comma-separated list of filter list URLs to fetch on startup
-    /// Example: https://easylist.to/easylist/easylist.txt
+    /// Comma-separated URLs to fetch into lists_dir on startup.
     #[arg(long, default_value = "")]
     fetch_lists: String,
 }
 
 #[derive(Deserialize)]
 struct CheckRequest {
-    /// The URL being requested
     url: String,
-    /// The URL of the page making the request (for cosmetic/network context)
     #[serde(default)]
     source_url: String,
-    /// Resource type: "script", "image", "stylesheet", "xmlhttprequest", "other"
     #[serde(default = "default_resource_type")]
     resource_type: String,
 }
 
-fn default_resource_type() -> String {
-    "other".to_string()
-}
+fn default_resource_type() -> String { "other".to_string() }
 
 #[derive(Serialize)]
 struct CheckResponse {
     blocked: bool,
-    /// The matched rule, if any
     matched_rule: Option<String>,
-    /// Redirect URL if the engine provides a resource replacement
     redirect: Option<String>,
 }
 
 #[derive(Serialize)]
 struct StatsResponse {
-    rules_loaded: usize,
+    rules_loaded: u64,
+    requests_checked: u64,
+    requests_blocked: u64,
     lists_dir: String,
 }
 
-type SharedEngine = Arc<RwLock<Engine>>;
+struct EngineState {
+    engine: Engine,
+    rules_loaded: u64,
+}
 
-fn build_engine(lists_dir: &PathBuf) -> Engine {
+type SharedEngine = Arc<RwLock<EngineState>>;
+
+fn fetch_url(url: &str, dest: &PathBuf) -> Result<usize, String> {
+    let out = std::process::Command::new("curl")
+        .args(["-fsSL", "--max-time", "30", url])
+        .output()
+        .map_err(|e| format!("curl exec failed: {}", e))?;
+    if !out.status.success() {
+        return Err(format!("curl exited {} for {}", out.status.code().unwrap_or(-1), url));
+    }
+    let n = out.stdout.len();
+    let mut f = fs::File::create(dest).map_err(|e| format!("create {}: {}", dest.display(), e))?;
+    f.write_all(&out.stdout).map_err(|e| format!("write: {}", e))?;
+    Ok(n)
+}
+
+fn fetch_all_lists(fetch_lists: &str, lists_dir: &PathBuf) {
+    if fetch_lists.is_empty() { return; }
+    let _ = fs::create_dir_all(lists_dir);
+    for url in fetch_lists.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let filename = url.rsplit('/').next()
+            .and_then(|s| s.split('?').next())
+            .unwrap_or("list.txt");
+        let dest = lists_dir.join(filename);
+        eprint!("[adblock-proxy] fetching {} → {} ... ", url, dest.display());
+        match fetch_url(url, &dest) {
+            Ok(n)  => eprintln!("ok ({} bytes)", n),
+            Err(e) => eprintln!("FAILED: {}", e),
+        }
+    }
+}
+
+fn build_engine(lists_dir: &PathBuf) -> EngineState {
     let mut filter_set = FilterSet::new(false);
-
-    // Load all .txt files from the lists directory
+    let mut total: u64 = 0;
     if lists_dir.exists() {
-        match fs::read_dir(lists_dir) {
-            Ok(entries) => {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|e| e.to_str()) == Some("txt") {
-                        match fs::read_to_string(&path) {
-                            Ok(content) => {
-                                let rules: Vec<String> =
-                                    content.lines().map(String::from).collect();
-                                filter_set.add_filters(
-                                    &rules,
-                                    ParseOptions {
-                                        rule_types: RuleTypes::All,
-                                        ..Default::default()
-                                    },
-                                );
-                                eprintln!(
-                                    "[adblock-proxy] loaded {} rules from {}",
-                                    rules.len(),
-                                    path.display()
-                                );
-                            }
-                            Err(e) => {
-                                eprintln!(
-                                    "[adblock-proxy] failed to read {}: {}",
-                                    path.display(),
-                                    e
-                                );
-                            }
-                        }
+        if let Ok(entries) = fs::read_dir(lists_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("txt") {
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        let rules: Vec<String> = content.lines().map(String::from).collect();
+                        let n = rules.len() as u64;
+                        filter_set.add_filters(&rules, ParseOptions {
+                            rule_types: RuleTypes::All,
+                            ..Default::default()
+                        });
+                        total += n;
+                        eprintln!("[adblock-proxy] loaded {} rules from {}", n, path.display());
                     }
                 }
             }
-            Err(e) => {
-                eprintln!(
-                    "[adblock-proxy] cannot read lists dir {}: {}",
-                    lists_dir.display(),
-                    e
-                );
-            }
         }
     } else {
-        eprintln!(
-            "[adblock-proxy] lists dir {} does not exist — starting with empty ruleset",
-            lists_dir.display()
-        );
+        eprintln!("[adblock-proxy] lists dir {} not found — empty ruleset", lists_dir.display());
     }
-
-    Engine::from_filter_set(filter_set, true)
+    eprintln!("[adblock-proxy] total rules: {}", total);
+    EngineState { engine: Engine::from_filter_set(filter_set, true), rules_loaded: total }
 }
 
-fn handle_check(engine: &SharedEngine, body: &str) -> Response<std::io::Cursor<Vec<u8>>> {
+fn json_ct() -> tiny_http::Header {
+    tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap()
+}
+
+fn handle_check(
+    state: &SharedEngine,
+    body: &str,
+    checked: &AtomicU64,
+    blocked: &AtomicU64,
+) -> Response<std::io::Cursor<Vec<u8>>> {
     let req: CheckRequest = match serde_json::from_str(body) {
         Ok(r) => r,
-        Err(e) => {
-            let msg = format!("{{\"error\":\"{}\"}}", e);
-            return Response::from_string(msg)
-                .with_status_code(400)
-                .with_header(
-                    tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap(),
-                );
-        }
+        Err(e) => return Response::from_string(format!("{{\"error\":\"{}\"}}",e))
+            .with_status_code(400).with_header(json_ct()),
     };
-
-    let source = if req.source_url.is_empty() {
-        req.url.clone()
-    } else {
-        req.source_url.clone()
-    };
-
+    let source = if req.source_url.is_empty() { req.url.clone() } else { req.source_url.clone() };
+    checked.fetch_add(1, Ordering::Relaxed);
     let result = match Request::new(&req.url, &source, &req.resource_type) {
-        Ok(request) => {
-            let eng = engine.read().unwrap();
-            let blocker_result = eng.check_network_request(&request);
+        Ok(r) => {
+            let s = state.read().unwrap();
+            let br = s.engine.check_network_request(&r);
+            if br.matched { blocked.fetch_add(1, Ordering::Relaxed); }
             CheckResponse {
-                blocked: blocker_result.matched,
-                matched_rule: blocker_result.filter.map(|f| f.to_string()),
-                redirect: blocker_result.redirect.map(|r| r.to_string()),
+                blocked: br.matched,
+                matched_rule: br.filter.map(|f| f.to_string()),
+                redirect: br.redirect.map(|r| r.to_string()),
             }
         }
-        Err(_) => CheckResponse {
-            blocked: false,
-            matched_rule: None,
-            redirect: None,
-        },
+        Err(_) => CheckResponse { blocked: false, matched_rule: None, redirect: None },
     };
-
-    let body = serde_json::to_string(&result).unwrap();
-    Response::from_string(body).with_header(
-        tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap(),
-    )
+    Response::from_string(serde_json::to_string(&result).unwrap()).with_header(json_ct())
 }
 
 fn main() {
     let args = Args::parse();
-
     eprintln!("[adblock-proxy] starting on {}", args.listen);
-    eprintln!("[adblock-proxy] lists dir: {}", args.lists_dir.display());
-
-    let engine = Arc::new(RwLock::new(build_engine(&args.lists_dir)));
-
+    fetch_all_lists(&args.fetch_lists, &args.lists_dir);
+    let state: SharedEngine = Arc::new(RwLock::new(build_engine(&args.lists_dir)));
+    let checked = Arc::new(AtomicU64::new(0));
+    let blocked = Arc::new(AtomicU64::new(0));
+    let lists_dir = args.lists_dir.clone();
     let server = Server::http(&args.listen).expect("failed to bind");
     eprintln!("[adblock-proxy] listening on http://{}", args.listen);
 
     for mut request in server.incoming_requests() {
         let method = request.method().clone();
-        let url = request.url().to_string();
-
-        let response = match (method, url.as_str()) {
+        let url_path = request.url().to_string();
+        let response = match (method, url_path.as_str()) {
             (Method::Get, "/health") => {
-                Response::from_string("{\"ok\":true}").with_header(
-                    tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap(),
-                )
+                let rules = state.read().unwrap().rules_loaded;
+                Response::from_string(format!("{{\"ok\":true,\"rules_loaded\":{}}}",rules))
+                    .with_header(json_ct())
             }
-
             (Method::Get, "/stats") => {
-                let stats = StatsResponse {
-                    rules_loaded: 0, // adblock Engine doesn't expose rule count directly
-                    lists_dir: args.lists_dir.display().to_string(),
+                let rules = state.read().unwrap().rules_loaded;
+                let s = StatsResponse {
+                    rules_loaded: rules,
+                    requests_checked: checked.load(Ordering::Relaxed),
+                    requests_blocked: blocked.load(Ordering::Relaxed),
+                    lists_dir: lists_dir.display().to_string(),
                 };
-                let body = serde_json::to_string(&stats).unwrap();
-                Response::from_string(body).with_header(
-                    tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap(),
-                )
+                Response::from_string(serde_json::to_string(&s).unwrap()).with_header(json_ct())
             }
-
             (Method::Post, "/check") => {
                 let mut body = String::new();
                 request.as_reader().read_to_string(&mut body).unwrap_or(0);
-                handle_check(&engine, &body)
+                handle_check(&state, &body, &checked, &blocked)
             }
-
             (Method::Post, "/reload") => {
-                let new_engine = build_engine(&args.lists_dir);
-                *engine.write().unwrap() = new_engine;
-                eprintln!("[adblock-proxy] filter lists reloaded");
-                Response::from_string("{\"ok\":true,\"action\":\"reloaded\"}").with_header(
-                    tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap(),
-                )
+                let new_state = build_engine(&lists_dir);
+                let rules = new_state.rules_loaded;
+                *state.write().unwrap() = new_state;
+                eprintln!("[adblock-proxy] reloaded ({} rules)", rules);
+                Response::from_string(format!(
+                    "{{\"ok\":true,\"action\":\"reloaded\",\"rules_loaded\":{}}}",rules))
+                    .with_header(json_ct())
             }
-
             _ => Response::from_string("{\"error\":\"not found\"}")
-                .with_status_code(404)
-                .with_header(
-                    tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap(),
-                ),
+                .with_status_code(404).with_header(json_ct()),
         };
-
         let _ = request.respond(response);
     }
 }

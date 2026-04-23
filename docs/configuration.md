@@ -129,6 +129,65 @@ registry:
   url: registry.gitlab.local
 ```
 
+### `adblock`
+
+```yaml
+adblock:
+  enabled: false                # set true to start adblock-proxy sidecar
+  listen_addr: "127.0.0.1:6060"
+  lists_dir: "/etc/adblock-proxy/lists"
+  filter_ci: true               # filter outbound CI job network requests
+  filter_workspaces: true       # filter workspace container traffic
+```
+
+Environment variable overrides:
+- `GITLAB_ENHANCED_ADBLOCK_ENABLED=true`
+- `GITLAB_ENHANCED_ADBLOCK_LISTEN_ADDR=127.0.0.1:6060`
+- `GITLAB_ENHANCED_ADBLOCK_LISTS_DIR=/etc/adblock-proxy/lists`
+
+### `rewards`
+
+```yaml
+rewards:
+  enabled: false                # MUST be explicitly true — nothing activates otherwise
+  publisher_id: ""              # Brave publisher verification ID
+  wallet_address: ""            # ERC-20 wallet address for receiving BAT
+  uphold_client_id: ""          # optional: Uphold custodial wallet API
+  uphold_client_secret: ""      # set via GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_SECRET
+  min_payout_bat: 5.0           # minimum BAT balance before auto-payout
+  listen_addr: "127.0.0.1:6061"
+```
+
+Environment variable overrides:
+- `GITLAB_ENHANCED_REWARDS_ENABLED=true`
+- `GITLAB_ENHANCED_REWARDS_PUBLISHER_ID=...`
+- `GITLAB_ENHANCED_REWARDS_WALLET_ADDRESS=0x...`
+- `GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_SECRET=...`
+- `GITLAB_ENHANCED_REWARDS_LISTEN_ADDR=127.0.0.1:6061`
+
+**Note:** The on-chain ERC-20 transfer path is not yet implemented. `POST /rewards/payout`
+logs the payout intent and marks rewards as paid, but does not submit a blockchain
+transaction. Integrate `go-ethereum` or the Uphold REST API to complete this.
+
+### `bandwidth`
+
+```yaml
+bandwidth:
+  enabled: false                # set true to start bandwidth proxy
+  listen_addr: "127.0.0.1:6062"
+  upstream_gitlab: ""           # defaults to http://<gitlab.domain>
+  compression_level: 6          # gzip level 1-9 (6 = good balance)
+  lfs_dedup_enabled: true       # hardlink identical LFS objects across repos
+  artifact_max_size_mb: 0       # 0 = unlimited
+  artifact_retention_days: 0    # 0 = keep forever
+  cache_max_size_gb: 0          # 0 = unlimited CI cache size
+```
+
+Environment variable overrides:
+- `GITLAB_ENHANCED_BANDWIDTH_ENABLED=true`
+- `GITLAB_ENHANCED_BANDWIDTH_LISTEN_ADDR=127.0.0.1:6062`
+- `GITLAB_ENHANCED_BANDWIDTH_UPSTREAM_GITLAB=http://gitlab.local`
+
 ### `ipfs`
 
 ```yaml
