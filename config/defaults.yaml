@@ -48,3 +48,28 @@ cloud:
 registry:
   backend: local                   # uses GitLab's built-in container registry
   url: "registry.gitlab.local"
+
+adblock:
+  enabled: false                   # set true to start adblock-proxy sidecar
+  listen_addr: "127.0.0.1:6060"
+  lists_dir: "/etc/adblock-proxy/lists"
+  filter_ci: true                  # filter outbound CI job network requests
+  filter_workspaces: true          # filter workspace container traffic
+
+rewards:
+  enabled: false                   # MUST be explicitly true to activate BAT rewards
+  publisher_id: ""                 # Brave publisher verification ID
+  wallet_address: ""               # ERC-20 wallet address for receiving BAT
+  uphold_client_id: ""             # optional: Uphold custodial wallet API
+  uphold_client_secret: ""         # set via GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_SECRET
+  min_payout_bat: 5.0              # minimum BAT balance before auto-payout
+  listen_addr: "127.0.0.1:6061"
+
+bandwidth:
+  enabled: false                   # set true to start bandwidth proxy
+  listen_addr: "127.0.0.1:6062"
+  compression_level: 6             # gzip level 1-9 (6 = good balance of speed/ratio)
+  lfs_dedup_enabled: true          # hardlink identical LFS objects across repos
+  artifact_max_size_mb: 0          # 0 = unlimited; set e.g. 500 to cap at 500 MB
+  artifact_retention_days: 0       # 0 = keep forever; set e.g. 30 for 30-day TTL
+  cache_max_size_gb: 0             # 0 = unlimited CI cache size

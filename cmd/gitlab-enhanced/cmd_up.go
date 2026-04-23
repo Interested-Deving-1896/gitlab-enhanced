@@ -150,6 +150,38 @@ func runUp(root string, withK8s, withGitpod, dryRun bool) error {
 		printOK(fmt.Sprintf("Gitpod Classic available at https://gitpod.%s", cfg.GitLab.Domain))
 	}
 
+	// --- adblock-proxy ---
+	if cfg.Adblock.Enabled {
+		printSection("adblock-proxy (network filter sidecar)")
+		if dryRun {
+			printInfo(fmt.Sprintf("would run: ansible-playbook %s/adblock.yml", ansibleDir))
+		} else {
+			if err := runAnsible(ansibleDir, "adblock.yml",
+				"-e", fmt.Sprintf("adblock_listen=%s", cfg.Adblock.ListenAddr),
+				"-e", fmt.Sprintf("adblock_lists_dir=%s", cfg.Adblock.ListsDir),
+			); err != nil {
+				printWarn(fmt.Sprintf("adblock-proxy setup failed: %v", err))
+			} else {
+				printOK(fmt.Sprintf("adblock-proxy running at http://%s", cfg.Adblock.ListenAddr))
+			}
+		}
+	}
+
+	// --- bandwidth proxy ---
+	if cfg.Bandwidth.Enabled {
+		printSection("bandwidth proxy (compression + LFS dedup + artifact policies)")
+		printInfo("Start manually: gitlab-enhanced bandwidth serve")
+		printInfo(fmt.Sprintf("Listen: http://%s", cfg.Bandwidth.ListenAddr))
+	}
+
+	// --- rewards service ---
+	if cfg.Rewards.Enabled {
+		printSection("BAT rewards service (opt-in)")
+		printInfo("Start manually: gitlab-enhanced rewards serve")
+		printInfo(fmt.Sprintf("Listen: http://%s", cfg.Rewards.ListenAddr))
+		printInfo("Configure GitLab system hook → http://" + cfg.Rewards.ListenAddr + "/webhook/gitlab")
+	}
+
 	fmt.Println()
 	printOK("Stack is up")
 	printInfo(fmt.Sprintf("GitLab:  https://%s", cfg.GitLab.Domain))

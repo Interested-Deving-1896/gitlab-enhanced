@@ -26,7 +26,10 @@ Components checked:
   build       — BuildKit daemon (Incus or Depot)
   environment — Dev environment backend (Incus / gitpod-k8s / Ona)
   storage     — Storage backend (local path or cloud endpoint)
-  ipfs        — IPFS node (when enabled)`,
+  ipfs        — IPFS node (when enabled)
+  adblock     — adblock-proxy filter sidecar (when enabled)
+  rewards     — BAT rewards service (when enabled)
+  bandwidth   — Bandwidth proxy service (when enabled)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStatus(*cfgRoot, jsonOut)
 		},
@@ -66,6 +69,12 @@ func runStatus(root string, jsonOut bool) error {
 		checkEnvironmentBackend("environment", cfg.Environment.Backend),
 		checkStorage(root, cfg.Storage.Backend, cfg.Storage.Path),
 		checkIPFS(client, cfg.IPFS.Enabled, cfg.IPFS.Node),
+		checkOptionalHTTP(client, "adblock", "adblock-proxy", cfg.Adblock.Enabled,
+			adblockAddr(cfg.Adblock.ListenAddr)+"/health"),
+		checkOptionalHTTP(client, "rewards", "bat-rewards", cfg.Rewards.Enabled,
+			rewardsStatusAddr(cfg.Rewards.ListenAddr)+"/health"),
+		checkOptionalHTTP(client, "bandwidth", "bw-proxy", cfg.Bandwidth.Enabled,
+			bandwidthStatusAddr(cfg.Bandwidth.ListenAddr)+"/health"),
 	}
 
 	if jsonOut {
@@ -244,6 +253,47 @@ func printStatusTable(checks []componentStatus) {
 		printWarn("some components are not running — use 'gitlab-enhanced up' to start them")
 	}
 	fmt.Println()
+}
+
+// checkOptionalHTTP checks an optional service that may be disabled.
+// When disabled it reports "disabled" rather than a failure.
+func checkOptionalHTTP(client *http.Client, name, backend string, enabled bool, url string) componentStatus {
+	if !enabled {
+		return componentStatus{Name: name, Backend: backend, OK: true, Detail: "disabled"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+url, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		return componentStatus{Name: name, Backend: backend, OK: false, Detail: fmt.Sprintf("not reachable at %s", url)}
+	}
+	resp.Body.Close()
+	if resp.StatusCode < 500 {
+		return componentStatus{Name: name, Backend: backend, OK: true, Detail: fmt.Sprintf("HTTP %d at %s", resp.StatusCode, url)}
+	}
+	return componentStatus{Name: name, Backend: backend, OK: false, Detail: fmt.Sprintf("HTTP %d at %s", resp.StatusCode, url)}
+}
+
+func adblockAddr(addr string) string {
+	if addr == "" {
+		return "127.0.0.1:6060"
+	}
+	return addr
+}
+
+func rewardsStatusAddr(addr string) string {
+	if addr == "" {
+		return "127.0.0.1:6061"
+	}
+	return addr
+}
+
+func bandwidthStatusAddr(addr string) string {
+	if addr == "" {
+		return "127.0.0.1:6062"
+	}
+	return addr
 }
 
 // printStatusJSON renders the status as JSON (no external dependency).

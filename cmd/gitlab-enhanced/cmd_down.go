@@ -39,6 +39,12 @@ func runDown(root string, withK8s, force bool) error {
 		"gitlab-enhanced-buildkit",
 	}
 
+	// Stop host systemd services (adblock-proxy, bandwidth, rewards).
+	// Best-effort — services may not be installed on all machines.
+	for _, svc := range []string{"adblock-proxy", "gitlab-enhanced-bandwidth", "gitlab-enhanced-rewards"} {
+		_ = runCmd("systemctl", "stop", svc)
+	}
+
 	printSection("Stopping services")
 	for _, svc := range services {
 		if !incusInstanceRunning(svc) {

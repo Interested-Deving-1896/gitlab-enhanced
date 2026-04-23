@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/abstraction/config"
 )
@@ -130,4 +133,21 @@ func incusInstanceRunning(name string) bool {
 		return false
 	}
 	return strings.Contains(out, "Status: RUNNING")
+}
+
+// httpGet performs a GET request and returns the response body as a string.
+func httpGet(url string) (string, error) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	return string(b), err
+}
+
+// stringReader wraps a string as an io.Reader for HTTP request bodies.
+func stringReader(s string) io.Reader {
+	return strings.NewReader(s)
 }
