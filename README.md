@@ -52,3 +52,5 @@ gitlab-enhanced/
 - [Cloud secondary](docs/cloud-secondary.md)
 - [Docker → Incus migration](docs/incus-migration.md)
 - [Contributing](docs/contributing.md)
+
+[![Build with Ona](https://ona.com/build-with-ona.svg)](https://app.ona.com/#https://gitlab.com/openos-project/git-management_deving/gitlab-enhanced)
