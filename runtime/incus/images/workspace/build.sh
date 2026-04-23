@@ -68,11 +68,19 @@ fi
 # ── Build OCI image ───────────────────────────────────────────────────────────
 info "Building workspace image (Go ${GO_VERSION}, OpenVSCode ${OPENVSCODE_VERSION})"
 
-BUILD_ARGS=(
+# Docker uses --build-arg KEY=VAL; buildctl uses --opt build-arg:KEY=VAL.
+# Keep them separate to avoid argument mangling.
+DOCKER_BUILD_ARGS=(
   "--build-arg" "GO_VERSION=${GO_VERSION}"
   "--build-arg" "NODE_VERSION=${NODE_VERSION}"
   "--build-arg" "OPENVSCODE_VERSION=${OPENVSCODE_VERSION}"
   "--build-arg" "TARGETARCH=${TARGETARCH}"
+)
+BUILDCTL_BUILD_ARGS=(
+  "--opt" "build-arg:GO_VERSION=${GO_VERSION}"
+  "--opt" "build-arg:NODE_VERSION=${NODE_VERSION}"
+  "--opt" "build-arg:OPENVSCODE_VERSION=${OPENVSCODE_VERSION}"
+  "--opt" "build-arg:TARGETARCH=${TARGETARCH}"
 )
 
 if [[ "${USE_INCUS_BUILDKIT:-0}" == "1" ]]; then
@@ -81,7 +89,7 @@ if [[ "${USE_INCUS_BUILDKIT:-0}" == "1" ]]; then
     --frontend dockerfile.v0 \
     --local context="${BUILD_DIR}" \
     --local dockerfile="${BUILD_DIR}" \
-    "${BUILD_ARGS[@]/#/--opt build-arg:}" \
+    "${BUILDCTL_BUILD_ARGS[@]}" \
     --output "type=oci,dest=/tmp/workspace-full.tar"
   incus file pull "buildkit/tmp/workspace-full.tar" "${OCI_ARCHIVE}"
   incus exec buildkit -- rm -f /tmp/workspace-full.tar
@@ -92,13 +100,13 @@ elif command -v buildctl &>/dev/null; then
     --frontend dockerfile.v0 \
     --local "context=${BUILD_DIR}" \
     --local "dockerfile=${BUILD_DIR}" \
-    "${BUILD_ARGS[@]/#/--opt build-arg:}" \
+    "${BUILDCTL_BUILD_ARGS[@]}" \
     --output "type=oci,dest=${OCI_ARCHIVE}"
 elif command -v docker &>/dev/null; then
   # Fallback: build with Docker, export as OCI archive
   warn "buildctl not found — falling back to Docker"
   docker build \
-    "${BUILD_ARGS[@]}" \
+    "${DOCKER_BUILD_ARGS[@]}" \
     --tag "gitlab-enhanced/workspace-full:latest" \
     "${BUILD_DIR}"
   docker save "gitlab-enhanced/workspace-full:latest" -o "${OCI_ARCHIVE}"

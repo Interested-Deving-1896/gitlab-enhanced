@@ -28,8 +28,14 @@ type GitpodK8sManager struct {
 }
 
 func NewGitpodK8sManager(cfg *config.Config) *GitpodK8sManager {
+	// Gitpod Classic runs on its own subdomain, not the GitLab domain.
+	// Falls back to "gitpod.<gitlab-domain>" when gitpod_domain is unset.
+	gitpodDomain := cfg.Environment.GitpodDomain
+	if gitpodDomain == "" {
+		gitpodDomain = "gitpod." + cfg.GitLab.Domain
+	}
 	return &GitpodK8sManager{
-		apiURL:    "https://" + cfg.GitLab.Domain,
+		apiURL:    "https://" + gitpodDomain,
 		authToken: cfg.Environment.Token,
 		client:    &http.Client{Timeout: 30 * time.Second},
 	}

@@ -12,3 +12,5 @@ lfs:
 
 environment:
   network: incusbr0
+  # Uncomment and set when using backend: gitpod-k8s
+  # gitpod_domain: gitpod.gitlab.local

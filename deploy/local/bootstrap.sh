@@ -120,7 +120,7 @@ fi
 info "Initialising Incus"
 
 # Use preseed to avoid interactive prompts
-if ! incus network show gitlab-enhanced &>/dev/null; then
+if ! incus network show gitlab-enhanced-br0 &>/dev/null; then
   incus admin init --preseed <<'PRESEED'
 config: {}
 networks:
@@ -129,7 +129,7 @@ networks:
     ipv4.nat: "true"
     ipv6.address: none
   description: "gitlab-enhanced bridge network"
-  name: gitlab-enhanced
+  name: gitlab-enhanced-br0
   type: bridge
 storage_pools:
 - config:
@@ -144,7 +144,7 @@ profiles:
     eth0:
       name: eth0
       nictype: bridged
-      parent: gitlab-enhanced
+      parent: gitlab-enhanced-br0
       type: nic
     root:
       path: /
@@ -156,7 +156,7 @@ cluster: null
 PRESEED
   ok "Incus initialised"
 else
-  ok "Incus already initialised (network gitlab-enhanced exists)"
+  ok "Incus already initialised (network gitlab-enhanced-br0 exists)"
 fi
 
 # ── 5. Apply Incus profiles ───────────────────────────────────────────────────
@@ -169,7 +169,7 @@ for profile_file in "$PROFILES_DIR"/*.yaml; do
     incus profile edit "$profile_name" < "$profile_file"
     ok "Updated profile: $profile_name"
   else
-    incus profile create "$profile_name" < "$profile_file"
+    incus profile create "$profile_name" && incus profile edit "$profile_name" < "$profile_file"
     ok "Created profile: $profile_name"
   fi
 done

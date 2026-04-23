@@ -39,6 +39,7 @@ environment:
   ide: openvscode-server
   ide_port: 3000
   network: gitlab-enhanced-br0
+  gitpod_domain: ""                # only used when backend=gitpod-k8s; defaults to gitpod.<gitlab.domain>
 
 cloud:
   enabled: false                   # master switch — nothing calls cloud APIs unless true
