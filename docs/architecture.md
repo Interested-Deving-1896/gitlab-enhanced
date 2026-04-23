@@ -58,6 +58,42 @@ cloud providers as an optional secondary layer for storage and compute.
 | Gitpod Classic | Helm on K8s | Ansible | `runtime/k8s-in-incus/` |
 | CLI | Go + Cobra | — | `cmd/gitlab-enhanced/` |
 | Cloud infra | Terraform | manual | `deploy/terraform/` |
+| Network filter | adblock-proxy (Rust) | Ansible | `utils/adblock-proxy/` |
+| BAT rewards | rewards service (Go) | manual (opt-in) | `rewards/` |
+| Bandwidth proxy | bandwidth service (Go) | manual (opt-in) | `bandwidth/` |
+
+## Optional services
+
+Three services are disabled by default and must be explicitly enabled in `config/local.yaml`.
+
+### adblock-proxy (`adblock.enabled: true`)
+
+A Rust HTTP sidecar embedding `brave/adblock-rust`. Loads EasyList/uBlock Origin
+filter lists and exposes `POST /check` for URL filtering. Called by the Incus
+runner executor to filter outbound CI job requests and by the workspace Nginx
+proxy. Deployed via `deploy/ansible/adblock.yml`. Filter lists are refreshed
+weekly by a systemd timer.
+
+### BAT Rewards (`rewards.enabled: true`)
+
+An opt-in Go HTTP service that receives GitLab system hook webhooks and queues
+BAT (Basic Attention Token) tips for contributors. Reward triggers: merged MR
+(1.0 BAT), closed issue (0.25 BAT), successful pipeline (0.1 BAT), repository
+star (0.05 BAT). Contributors register their ERC-20 wallet address once via
+`POST /wallet/register`. Payout is triggered manually via `gitlab-enhanced
+rewards payout`. The on-chain ERC-20 transfer is intentionally stubbed — it
+logs the payout intent until `go-ethereum` or the Uphold REST API is integrated.
+
+### Bandwidth proxy (`bandwidth.enabled: true`)
+
+A Go HTTP reverse proxy in front of GitLab that provides:
+1. **Gzip compression** — buffers upstream responses, inspects Content-Type,
+   compresses only text/JSON/JS/XML payloads (skips binary LFS transfers).
+2. **LFS deduplication** — SHA-256 content-addressed hardlinks. When two
+   repositories store the same large file, the second copy is replaced with a
+   hardlink to the first, saving disk space.
+3. **CI artifact policies** — configurable per-artifact size limit and
+   retention TTL, enforced by a background goroutine every 6 hours.
 
 ## Abstraction layer
 

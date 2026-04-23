@@ -154,41 +154,76 @@ func (s *Service) Start(ctx context.Context) error {
 // --- Compression ---
 
 // compressionMiddleware wraps an http.Handler with gzip response compression.
-// Only compresses text/* and application/json responses.
+// Compression is applied only when:
+//   - The client sends Accept-Encoding: gzip
+//   - The response Content-Type is compressible (text/*, JSON, JS, XML, YAML)
+//   - The request is not a binary LFS object upload/download
+//
+// Content-Encoding and BytesSaved are set after the upstream handler runs so
+// we know the actual Content-Type before committing to compression.
 func (s *Service) compressionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// Don't compress already-compressed LFS binary uploads
-		if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/lfs/objects/") {
+		// Never compress LFS object transfers — already binary/opaque.
+		if strings.Contains(r.URL.Path, "/lfs/objects/") {
 			next.ServeHTTP(w, r)
 			return
 		}
-		gzw := &gzipResponseWriter{
-			ResponseWriter: w,
-			level:          s.cfg.CompressionLevel,
-			stats:          &s.stats,
-		}
-		defer gzw.close()
-		w.Header().Set("Content-Encoding", "gzip")
-		next.ServeHTTP(gzw, r)
+
+		// Buffer the response so we can inspect Content-Type before compressing.
+		buf := &bufferedResponseWriter{header: w.Header().Clone(), code: http.StatusOK}
+		next.ServeHTTP(buf, r)
+
 		s.stats.mu.Lock()
 		s.stats.RequestsProxied++
 		s.stats.mu.Unlock()
+
+		ct := buf.header.Get("Content-Type")
+		if !isCompressible(ct) {
+			// Pass through unmodified.
+			w.WriteHeader(buf.code)
+			_, _ = w.Write(buf.body)
+			return
+		}
+
+		// Compress into a buffer first so we know the compressed size.
+		uncompressedSize := int64(len(buf.body))
+		var gzBuf strings.Builder
+		gz, err := gzip.NewWriterLevel(&gzBuf, s.cfg.CompressionLevel)
+		if err != nil {
+			// Compression unavailable — pass through unmodified.
+			w.WriteHeader(buf.code)
+			_, _ = w.Write(buf.body)
+			return
+		}
+		_, _ = gz.Write(buf.body)
+		_ = gz.Close()
+		compressed := gzBuf.String()
+
+		saved := uncompressedSize - int64(len(compressed))
+		if saved < 0 {
+			saved = 0
+		}
+		s.stats.mu.Lock()
+		s.stats.BytesIn += uncompressedSize
+		s.stats.BytesSaved += saved
+		s.stats.mu.Unlock()
+
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Del("Content-Length")
+		w.WriteHeader(buf.code)
+		_, _ = io.WriteString(w, compressed)
 	})
 }
 
-// compressResponse is called by the reverse proxy to optionally compress
-// the upstream response before forwarding to the client.
+// compressResponse is the ReverseProxy ModifyResponse hook.
+// It tracks the uncompressed upstream response size for statistics.
+// Actual compression is handled by compressionMiddleware above.
 func (s *Service) compressResponse(resp *http.Response) error {
-	ct := resp.Header.Get("Content-Type")
-	if !isCompressible(ct) {
-		return nil
-	}
-	// Track uncompressed size
-	if resp.ContentLength > 0 {
+	if resp.ContentLength > 0 && isCompressible(resp.Header.Get("Content-Type")) {
 		s.stats.mu.Lock()
 		s.stats.BytesIn += resp.ContentLength
 		s.stats.mu.Unlock()
@@ -206,32 +241,19 @@ func isCompressible(contentType string) bool {
 	return false
 }
 
-// gzipResponseWriter wraps http.ResponseWriter to transparently gzip the body.
-type gzipResponseWriter struct {
-	http.ResponseWriter
-	gz    *gzip.Writer
-	level int
-	stats *Stats
-	wrote int64
+// bufferedResponseWriter captures the upstream response body and headers so
+// compressionMiddleware can inspect Content-Type before deciding to compress.
+type bufferedResponseWriter struct {
+	header http.Header
+	body   []byte
+	code   int
 }
 
-func (g *gzipResponseWriter) Write(b []byte) (int, error) {
-	if g.gz == nil {
-		var err error
-		g.gz, err = gzip.NewWriterLevel(g.ResponseWriter, g.level)
-		if err != nil {
-			return g.ResponseWriter.Write(b)
-		}
-	}
-	n, err := g.gz.Write(b)
-	g.wrote += int64(n)
-	return n, err
-}
-
-func (g *gzipResponseWriter) close() {
-	if g.gz != nil {
-		_ = g.gz.Close()
-	}
+func (b *bufferedResponseWriter) Header() http.Header        { return b.header }
+func (b *bufferedResponseWriter) WriteHeader(code int)       { b.code = code }
+func (b *bufferedResponseWriter) Write(p []byte) (int, error) {
+	b.body = append(b.body, p...)
+	return len(p), nil
 }
 
 // --- LFS Deduplication ---
@@ -253,6 +275,12 @@ func (s *Service) DeduplicateLFSObject(oid string, size int64) (DedupResult, err
 		return DedupResult{OID: oid, SizeBytes: size}, nil
 	}
 
+	// A valid Git LFS OID is a 64-character hex SHA-256. Reject anything shorter
+	// to prevent index-out-of-range panics on the slice operations below.
+	if len(oid) < 4 {
+		return DedupResult{}, fmt.Errorf("invalid LFS OID %q: must be at least 4 characters", oid)
+	}
+
 	// LFS objects are stored at <store>/<oid[0:2]>/<oid[2:4]>/<oid>
 	objPath := filepath.Join(s.cfg.LFSStorePath,
 		oid[0:2], oid[2:4], oid)
@@ -267,28 +295,34 @@ func (s *Service) DeduplicateLFSObject(oid string, size int64) (DedupResult, err
 		return DedupResult{OID: oid, SizeBytes: size}, err
 	}
 
-	// Check the dedup index for an existing object with the same content hash
-	dedupPath := filepath.Join(s.cfg.LFSStorePath, ".dedup", hash)
+	// Check the dedup index for an existing object with the same content hash.
+	dedupDir := filepath.Join(s.cfg.LFSStorePath, ".dedup")
+	dedupPath := filepath.Join(dedupDir, hash)
 	if existing, err := os.Readlink(dedupPath); err == nil {
-		// Found a duplicate — create a hardlink to save space
-		newPath := objPath + ".dedup"
-		if linkErr := os.Link(existing, newPath); linkErr == nil {
-			s.stats.mu.Lock()
-			s.stats.DedupHits++
-			s.stats.DedupBytesSaved += size
-			s.stats.mu.Unlock()
-			return DedupResult{
-				OID:        oid,
-				SizeBytes:  size,
-				Duplicate:  true,
-				LinkedFrom: existing,
-				BytesSaved: size,
-			}, nil
+		// Found a duplicate. Replace objPath with a hardlink to the canonical
+		// copy so the inode is shared and disk space is reclaimed.
+		// Atomic replace: link to a temp name, then rename over the original.
+		tmpPath := objPath + ".dedup-tmp"
+		if linkErr := os.Link(existing, tmpPath); linkErr == nil {
+			if renameErr := os.Rename(tmpPath, objPath); renameErr == nil {
+				s.stats.mu.Lock()
+				s.stats.DedupHits++
+				s.stats.DedupBytesSaved += size
+				s.stats.mu.Unlock()
+				return DedupResult{
+					OID:        oid,
+					SizeBytes:  size,
+					Duplicate:  true,
+					LinkedFrom: existing,
+					BytesSaved: size,
+				}, nil
+			}
+			_ = os.Remove(tmpPath)
 		}
 	}
 
-	// Register this object in the dedup index
-	_ = os.MkdirAll(filepath.Join(s.cfg.LFSStorePath, ".dedup"), 0755)
+	// First time we see this content hash — register objPath as the canonical copy.
+	_ = os.MkdirAll(dedupDir, 0755)
 	_ = os.Symlink(objPath, dedupPath)
 
 	return DedupResult{OID: oid, SizeBytes: size, Duplicate: false}, nil
@@ -413,11 +447,14 @@ func (s *Service) handleLFSDedup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleArtifactPolicy(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	tracked := len(s.artifacts)
+	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"artifact_max_size_mb":     s.cfg.ArtifactMaxSizeMB,
-		"artifact_retention_days":  s.cfg.ArtifactRetentionDays,
-		"cache_max_size_gb":        s.cfg.CacheMaxSizeGB,
-		"artifacts_tracked":        len(s.artifacts),
+		"artifact_max_size_mb":    s.cfg.ArtifactMaxSizeMB,
+		"artifact_retention_days": s.cfg.ArtifactRetentionDays,
+		"cache_max_size_gb":       s.cfg.CacheMaxSizeGB,
+		"artifacts_tracked":       tracked,
 	})
 }
 
@@ -426,9 +463,11 @@ func (s *Service) handleArtifactEvict(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	before := s.stats.ArtifactsEvicted
+	// Snapshot before/after under the stats mutex to avoid a data race with
+	// the background retention enforcer goroutine.
+	before := s.stats.snapshot().ArtifactsEvicted
 	s.evictArtifacts()
-	after := s.stats.ArtifactsEvicted
+	after := s.stats.snapshot().ArtifactsEvicted
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"evicted": after - before,

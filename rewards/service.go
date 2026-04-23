@@ -227,38 +227,62 @@ func (s *Service) handleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
 
 	var event *ContributionEvent
 
+	// safeAttrs extracts object_attributes as map[string]any, returning nil if absent.
+	safeAttrs := func(p map[string]any) map[string]any {
+		v, _ := p["object_attributes"].(map[string]any)
+		return v
+	}
+	safeUser := func(p map[string]any) map[string]any {
+		v, _ := p["user"].(map[string]any)
+		return v
+	}
+	strField := func(m map[string]any, key string) string {
+		if m == nil {
+			return ""
+		}
+		v, _ := m[key].(string)
+		return v
+	}
+	intField := func(m map[string]any, key string) int {
+		if m == nil {
+			return 0
+		}
+		v, _ := m[key].(float64) // JSON numbers decode as float64
+		return int(v)
+	}
+
 	switch eventType {
 	case "Merge Request Hook":
-		if state, _ := payload["object_attributes"].(map[string]any)["state"].(string); state == "merged" {
-			attrs := payload["object_attributes"].(map[string]any)
-			user := payload["user"].(map[string]any)
+		attrs := safeAttrs(payload)
+		if strField(attrs, "state") == "merged" {
+			user := safeUser(payload)
 			event = &ContributionEvent{
 				Type:                "merge_request",
-				ContributorUsername: fmt.Sprintf("%v", user["username"]),
-				ContributorEmail:    fmt.Sprintf("%v", user["email"]),
-				ObjectID:            int(attrs["iid"].(float64)),
+				ContributorUsername: strField(user, "username"),
+				ContributorEmail:    strField(user, "email"),
+				ObjectID:            intField(attrs, "iid"),
 			}
 		}
 	case "Issue Hook":
-		if action, _ := payload["object_attributes"].(map[string]any)["action"].(string); action == "close" {
-			attrs := payload["object_attributes"].(map[string]any)
-			user := payload["user"].(map[string]any)
+		attrs := safeAttrs(payload)
+		if strField(attrs, "action") == "close" {
+			user := safeUser(payload)
 			event = &ContributionEvent{
 				Type:                "issue",
-				ContributorUsername: fmt.Sprintf("%v", user["username"]),
-				ContributorEmail:    fmt.Sprintf("%v", user["email"]),
-				ObjectID:            int(attrs["iid"].(float64)),
+				ContributorUsername: strField(user, "username"),
+				ContributorEmail:    strField(user, "email"),
+				ObjectID:            intField(attrs, "iid"),
 			}
 		}
 	case "Pipeline Hook":
-		if status, _ := payload["object_attributes"].(map[string]any)["status"].(string); status == "success" {
-			attrs := payload["object_attributes"].(map[string]any)
-			user := payload["user"].(map[string]any)
+		attrs := safeAttrs(payload)
+		if strField(attrs, "status") == "success" {
+			user := safeUser(payload)
 			event = &ContributionEvent{
 				Type:                "pipeline",
-				ContributorUsername: fmt.Sprintf("%v", user["username"]),
-				ContributorEmail:    fmt.Sprintf("%v", user["email"]),
-				ObjectID:            int(attrs["id"].(float64)),
+				ContributorUsername: strField(user, "username"),
+				ContributorEmail:    strField(user, "email"),
+				ObjectID:            intField(attrs, "id"),
 			}
 		}
 	}

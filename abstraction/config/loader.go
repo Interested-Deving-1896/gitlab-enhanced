@@ -176,6 +176,9 @@ type BandwidthConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// ListenAddr is the address the bandwidth proxy binds to.
 	ListenAddr string `yaml:"listen_addr"`
+	// UpstreamGitLab is the URL of the GitLab instance to proxy to.
+	// Defaults to http://<gitlab.domain> when empty.
+	UpstreamGitLab string `yaml:"upstream_gitlab"`
 	// CompressionLevel sets gzip compression level (1-9, 0=disabled).
 	CompressionLevel int `yaml:"compression_level"`
 	// LFSDedupEnabled enables content-addressed deduplication for LFS objects.
@@ -234,15 +237,28 @@ func mergeFile(cfg *Config, path string) error {
 // Format: GITLAB_ENHANCED_STORAGE_BACKEND → cfg.Storage.Backend
 func applyEnvOverrides(cfg *Config) {
 	overrides := map[string]*string{
-		"GITLAB_ENHANCED_GITLAB_DOMAIN":        &cfg.GitLab.Domain,
-		"GITLAB_ENHANCED_STORAGE_BACKEND":      &cfg.Storage.Backend,
-		"GITLAB_ENHANCED_STORAGE_PATH":         &cfg.Storage.Path,
-		"GITLAB_ENHANCED_BUILD_BACKEND":        &cfg.Build.Backend,
-		"GITLAB_ENHANCED_RUNNER_BACKEND":       &cfg.Runner.Backend,
-		"GITLAB_ENHANCED_LFS_SERVER":           &cfg.LFS.Server,
-		"GITLAB_ENHANCED_LFS_BACKEND":          &cfg.LFS.Backend,
-		"GITLAB_ENHANCED_ENVIRONMENT_BACKEND":  &cfg.Environment.Backend,
-		"GITLAB_ENHANCED_CLOUD_PROVIDER":       &cfg.Cloud.Provider,
+		// Core
+		"GITLAB_ENHANCED_GITLAB_DOMAIN":                &cfg.GitLab.Domain,
+		"GITLAB_ENHANCED_STORAGE_BACKEND":              &cfg.Storage.Backend,
+		"GITLAB_ENHANCED_STORAGE_PATH":                 &cfg.Storage.Path,
+		"GITLAB_ENHANCED_BUILD_BACKEND":                &cfg.Build.Backend,
+		"GITLAB_ENHANCED_RUNNER_BACKEND":               &cfg.Runner.Backend,
+		"GITLAB_ENHANCED_LFS_SERVER":                   &cfg.LFS.Server,
+		"GITLAB_ENHANCED_LFS_BACKEND":                  &cfg.LFS.Backend,
+		"GITLAB_ENHANCED_ENVIRONMENT_BACKEND":          &cfg.Environment.Backend,
+		"GITLAB_ENHANCED_CLOUD_PROVIDER":               &cfg.Cloud.Provider,
+		// Adblock
+		"GITLAB_ENHANCED_ADBLOCK_LISTEN_ADDR":          &cfg.Adblock.ListenAddr,
+		"GITLAB_ENHANCED_ADBLOCK_LISTS_DIR":            &cfg.Adblock.ListsDir,
+		// Rewards
+		"GITLAB_ENHANCED_REWARDS_PUBLISHER_ID":         &cfg.Rewards.PublisherID,
+		"GITLAB_ENHANCED_REWARDS_WALLET_ADDRESS":       &cfg.Rewards.WalletAddress,
+		"GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_ID":     &cfg.Rewards.UpholdClientID,
+		"GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_SECRET": &cfg.Rewards.UpholdClientSecret,
+		"GITLAB_ENHANCED_REWARDS_LISTEN_ADDR":          &cfg.Rewards.ListenAddr,
+		// Bandwidth
+		"GITLAB_ENHANCED_BANDWIDTH_LISTEN_ADDR":        &cfg.Bandwidth.ListenAddr,
+		"GITLAB_ENHANCED_BANDWIDTH_UPSTREAM_GITLAB":    &cfg.Bandwidth.UpstreamGitLab,
 	}
 	for env, field := range overrides {
 		if v := os.Getenv(env); v != "" {
