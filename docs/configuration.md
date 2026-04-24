@@ -60,8 +60,8 @@ storage:
   ipfs_api: http://127.0.0.1:5001
   ipfs_gateway: http://127.0.0.1:8080
 
-  # chain backend — ordered list of backends, first available wins for reads
-  # writes go to all backends
+  # chain backend — ordered list of backends; reads return the first hit,
+  # writes go to ALL backends in the list (fan-out)
   backends: []
 ```
 
@@ -152,22 +152,37 @@ rewards:
   enabled: false                # MUST be explicitly true — nothing activates otherwise
   publisher_id: ""              # Brave publisher verification ID
   wallet_address: ""            # ERC-20 wallet address for receiving BAT
-  uphold_client_id: ""          # optional: Uphold custodial wallet API
+  uphold_client_id: ""          # Uphold OAuth2 client ID for custodial payouts
   uphold_client_secret: ""      # set via GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_SECRET
-  min_payout_bat: 5.0           # minimum BAT balance before auto-payout
+  min_payout_bat: 5.0           # minimum BAT balance before auto-payout triggers
   listen_addr: "127.0.0.1:6061"
+  webhook_secret: ""            # must match the secret set in GitLab Admin > System Hooks
+  db_path: ""                   # SQLite file; defaults to /var/lib/gitlab-enhanced/rewards.db
+  bandwidth_addr: ""            # address of bandwidth service for artifact auto-registration
 ```
 
 Environment variable overrides:
 - `GITLAB_ENHANCED_REWARDS_ENABLED=true`
 - `GITLAB_ENHANCED_REWARDS_PUBLISHER_ID=...`
 - `GITLAB_ENHANCED_REWARDS_WALLET_ADDRESS=0x...`
+- `GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_ID=...`
 - `GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_SECRET=...`
 - `GITLAB_ENHANCED_REWARDS_LISTEN_ADDR=127.0.0.1:6061`
+- `GITLAB_ENHANCED_REWARDS_WEBHOOK_SECRET=...`
+- `GITLAB_ENHANCED_REWARDS_DB_PATH=/var/lib/gitlab-enhanced/rewards.db`
+- `GITLAB_ENHANCED_REWARDS_BANDWIDTH_ADDR=127.0.0.1:6062`
+- `GITLAB_ENHANCED_REWARDS_MIN_PAYOUT_BAT=5.0`
 
-**Note:** The on-chain ERC-20 transfer path is not yet implemented. `POST /rewards/payout`
-logs the payout intent and marks rewards as paid, but does not submit a blockchain
-transaction. Integrate `go-ethereum` or the Uphold REST API to complete this.
+Wallet registrations, pending rewards, and payout history are persisted to
+SQLite (`db_path`). State survives service restarts.
+
+Payouts are submitted via the Uphold REST API when `uphold_client_id` and
+`uphold_client_secret` are set. Without credentials `POST /rewards/payout`
+returns an error — it does not silently mark rewards as paid.
+
+Incoming webhooks are validated against `webhook_secret` using constant-time
+comparison (`X-Gitlab-Token` header). Requests with a wrong or missing token
+are rejected with HTTP 401. A startup warning is logged when no secret is set.
 
 ### `bandwidth`
 
@@ -181,12 +196,22 @@ bandwidth:
   artifact_max_size_mb: 0       # 0 = unlimited
   artifact_retention_days: 0    # 0 = keep forever
   cache_max_size_gb: 0          # 0 = unlimited CI cache size
+  db_path: ""                   # SQLite file; defaults to /var/lib/gitlab-enhanced/bandwidth.db
 ```
 
 Environment variable overrides:
 - `GITLAB_ENHANCED_BANDWIDTH_ENABLED=true`
 - `GITLAB_ENHANCED_BANDWIDTH_LISTEN_ADDR=127.0.0.1:6062`
 - `GITLAB_ENHANCED_BANDWIDTH_UPSTREAM_GITLAB=http://gitlab.local`
+- `GITLAB_ENHANCED_BANDWIDTH_COMPRESSION_LEVEL=6`
+- `GITLAB_ENHANCED_BANDWIDTH_ARTIFACT_MAX_SIZE_MB=500`
+- `GITLAB_ENHANCED_BANDWIDTH_ARTIFACT_RETENTION_DAYS=30`
+- `GITLAB_ENHANCED_BANDWIDTH_CACHE_MAX_SIZE_GB=50`
+- `GITLAB_ENHANCED_BANDWIDTH_DB_PATH=/var/lib/gitlab-enhanced/bandwidth.db`
+
+Artifact records are persisted to SQLite (`db_path`) so the retention enforcer
+survives restarts. Responses larger than 32 MiB are passed through uncompressed
+to prevent unbounded memory growth.
 
 ### `ipfs`
 

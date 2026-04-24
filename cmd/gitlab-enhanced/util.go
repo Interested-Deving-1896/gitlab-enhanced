@@ -78,6 +78,23 @@ func buildCmd(name string, args ...string) *exec.Cmd {
 	return cmd
 }
 
+// runCmdWithFileStdin runs name with args, piping the contents of filePath to
+// the command's stdin. This replaces shell constructs like "cmd arg < file"
+// without invoking a shell, eliminating any risk of shell injection from
+// filePath or arg values that contain special characters.
+func runCmdWithFileStdin(filePath string, name string, args ...string) error {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", filePath, err)
+	}
+	defer f.Close()
+	cmd := exec.Command(name, args...)
+	cmd.Stdin = f
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // printSection prints a section header.
 func printSection(title string) {
 	fmt.Printf("\n\033[1;34m▶ %s\033[0m\n", title)
