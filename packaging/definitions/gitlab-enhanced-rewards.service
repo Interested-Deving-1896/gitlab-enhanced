@@ -1,0 +1,32 @@
+[Unit]
+Description=gitlab-enhanced BAT rewards service
+Documentation=https://gitlab.com/openos-project/git-management_deving/gitlab-enhanced
+After=network.target
+ConditionPathExists=/etc/gitlab-enhanced/local.yaml
+
+[Service]
+Type=simple
+User=gitlab-enhanced
+Group=gitlab-enhanced
+EnvironmentFile=-/etc/gitlab-enhanced/rewards.env
+ExecStart=/usr/local/bin/gitlab-enhanced rewards serve --config /etc/gitlab-enhanced
+ExecStartPost=/bin/sh -c 'until curl -sf http://127.0.0.1:6061/health > /dev/null; do sleep 1; done'
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/gitlab-enhanced
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gitlab-enhanced-rewards
+
+[Install]
+WantedBy=multi-user.target

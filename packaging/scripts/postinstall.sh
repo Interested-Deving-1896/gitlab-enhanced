@@ -33,4 +33,9 @@ export PATH="/usr/local/bin:$PATH"
 EOF
 fi
 
+# Reload systemd so new service units are recognized
+if command -v systemctl &>/dev/null && systemctl is-system-running &>/dev/null; then
+  systemctl daemon-reload
+fi
+
 echo "gitlab-enhanced installed. Run 'gitlab-enhanced init' to get started."

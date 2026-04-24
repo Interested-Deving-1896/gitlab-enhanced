@@ -131,6 +131,7 @@ func (s *Service) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/stats", s.handleStats)
+	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/lfs/dedup", s.handleLFSDedup)
 	mux.HandleFunc("/artifacts/register", s.handleArtifactRegister)
 	mux.HandleFunc("/artifacts/policy", s.handleArtifactPolicy)
@@ -483,6 +484,34 @@ func (s *Service) handleStats(w http.ResponseWriter, r *http.Request) {
 		"savings_percent":      fmt.Sprintf("%.1f%%", savingsPct),
 		"dedup_bytes_saved_mb": snap.DedupBytesSaved / (1024 * 1024),
 	})
+}
+
+// handleMetrics emits Prometheus text format metrics for scraping.
+// Compatible with any Prometheus-compatible collector (Prometheus, VictoriaMetrics, etc.).
+func (s *Service) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	snap := s.stats.snapshot()
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	fmt.Fprintf(w, "# HELP gitlab_enhanced_bandwidth_bytes_in Total bytes received by the proxy\n")
+	fmt.Fprintf(w, "# TYPE gitlab_enhanced_bandwidth_bytes_in counter\n")
+	fmt.Fprintf(w, "gitlab_enhanced_bandwidth_bytes_in %d\n", snap.BytesIn)
+	fmt.Fprintf(w, "# HELP gitlab_enhanced_bandwidth_bytes_out Total bytes sent by the proxy\n")
+	fmt.Fprintf(w, "# TYPE gitlab_enhanced_bandwidth_bytes_out counter\n")
+	fmt.Fprintf(w, "gitlab_enhanced_bandwidth_bytes_out %d\n", snap.BytesOut)
+	fmt.Fprintf(w, "# HELP gitlab_enhanced_bandwidth_bytes_saved Total bytes saved by compression\n")
+	fmt.Fprintf(w, "# TYPE gitlab_enhanced_bandwidth_bytes_saved counter\n")
+	fmt.Fprintf(w, "gitlab_enhanced_bandwidth_bytes_saved %d\n", snap.BytesSaved)
+	fmt.Fprintf(w, "# HELP gitlab_enhanced_bandwidth_requests_proxied Total requests proxied\n")
+	fmt.Fprintf(w, "# TYPE gitlab_enhanced_bandwidth_requests_proxied counter\n")
+	fmt.Fprintf(w, "gitlab_enhanced_bandwidth_requests_proxied %d\n", snap.RequestsProxied)
+	fmt.Fprintf(w, "# HELP gitlab_enhanced_bandwidth_dedup_hits Total LFS dedup cache hits\n")
+	fmt.Fprintf(w, "# TYPE gitlab_enhanced_bandwidth_dedup_hits counter\n")
+	fmt.Fprintf(w, "gitlab_enhanced_bandwidth_dedup_hits %d\n", snap.DedupHits)
+	fmt.Fprintf(w, "# HELP gitlab_enhanced_bandwidth_dedup_bytes_saved Total bytes saved by LFS dedup\n")
+	fmt.Fprintf(w, "# TYPE gitlab_enhanced_bandwidth_dedup_bytes_saved counter\n")
+	fmt.Fprintf(w, "gitlab_enhanced_bandwidth_dedup_bytes_saved %d\n", snap.DedupBytesSaved)
+	fmt.Fprintf(w, "# HELP gitlab_enhanced_bandwidth_artifacts_evicted Total CI artifacts evicted by retention policy\n")
+	fmt.Fprintf(w, "# TYPE gitlab_enhanced_bandwidth_artifacts_evicted counter\n")
+	fmt.Fprintf(w, "gitlab_enhanced_bandwidth_artifacts_evicted %d\n", snap.ArtifactsEvicted)
 }
 
 func (s *Service) handleLFSDedup(w http.ResponseWriter, r *http.Request) {

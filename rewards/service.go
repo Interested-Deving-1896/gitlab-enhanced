@@ -142,17 +142,20 @@ func New(cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("rewards: open store: %w", err)
 	}
 
-	return &Service{
-		cfg:   cfg,
-		rates: DefaultRewardRates(),
-		db:    db,
-	}, nil
+	svc := &Service{
+		cfg: cfg,
+		db:  db,
+	}
+	// Load persisted rates; fall back to defaults if none saved yet.
+	svc.rates = svc.loadRates()
+	return svc, nil
 }
 
 // Start launches the HTTP server. Blocks until ctx is cancelled.
 func (s *Service) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/webhook/gitlab", s.handleGitLabWebhook)
 	mux.HandleFunc("/wallet/register", s.handleWalletRegister)
 	mux.HandleFunc("/wallet/", s.handleWalletGet)
@@ -247,6 +250,52 @@ func (s *Service) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"publisher_id": s.cfg.PublisherID,
 		"wallet":       s.cfg.WalletAddress,
 	})
+}
+
+// handleMetrics emits Prometheus text format metrics for scraping.
+func (s *Service) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	pending, _ := s.loadPendingRewards()
+	var totalPending, totalPaid, totalFailed int
+	var batQueued, batPaid float64
+	for _, rw := range pending {
+		switch rw.Status {
+		case "pending":
+			totalPending++
+			batQueued += rw.AmountBAT
+		case "paid":
+			totalPaid++
+			batPaid += rw.AmountBAT
+		case "failed":
+			totalFailed++
+		}
+	}
+
+	s.mu.RLock()
+	rates := s.rates
+	s.mu.RUnlock()
+
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	fmt.Fprintf(w, "# HELP gitlab_enhanced_rewards_pending Total rewards awaiting payout\n")
+	fmt.Fprintf(w, "# TYPE gitlab_enhanced_rewards_pending gauge\n")
+	fmt.Fprintf(w, "gitlab_enhanced_rewards_pending %d\n", totalPending)
+	fmt.Fprintf(w, "# HELP gitlab_enhanced_rewards_paid_total Total rewards successfully paid\n")
+	fmt.Fprintf(w, "# TYPE gitlab_enhanced_rewards_paid_total counter\n")
+	fmt.Fprintf(w, "gitlab_enhanced_rewards_paid_total %d\n", totalPaid)
+	fmt.Fprintf(w, "# HELP gitlab_enhanced_rewards_failed_total Total rewards that failed payout\n")
+	fmt.Fprintf(w, "# TYPE gitlab_enhanced_rewards_failed_total counter\n")
+	fmt.Fprintf(w, "gitlab_enhanced_rewards_failed_total %d\n", totalFailed)
+	fmt.Fprintf(w, "# HELP gitlab_enhanced_rewards_bat_queued_total BAT queued for payout\n")
+	fmt.Fprintf(w, "# TYPE gitlab_enhanced_rewards_bat_queued_total gauge\n")
+	fmt.Fprintf(w, "gitlab_enhanced_rewards_bat_queued_total %.8f\n", batQueued)
+	fmt.Fprintf(w, "# HELP gitlab_enhanced_rewards_bat_paid_total BAT successfully paid out\n")
+	fmt.Fprintf(w, "# TYPE gitlab_enhanced_rewards_bat_paid_total counter\n")
+	fmt.Fprintf(w, "gitlab_enhanced_rewards_bat_paid_total %.8f\n", batPaid)
+	fmt.Fprintf(w, "# HELP gitlab_enhanced_rewards_rate_bat Rate in BAT per event type\n")
+	fmt.Fprintf(w, "# TYPE gitlab_enhanced_rewards_rate_bat gauge\n")
+	fmt.Fprintf(w, "gitlab_enhanced_rewards_rate_bat{event=\"merge_request\"} %.4f\n", rates.MergeRequest)
+	fmt.Fprintf(w, "gitlab_enhanced_rewards_rate_bat{event=\"issue\"} %.4f\n", rates.Issue)
+	fmt.Fprintf(w, "gitlab_enhanced_rewards_rate_bat{event=\"pipeline\"} %.4f\n", rates.Pipeline)
+	fmt.Fprintf(w, "gitlab_enhanced_rewards_rate_bat{event=\"star\"} %.4f\n", rates.Star)
 }
 
 // handleGitLabWebhook receives GitLab system hooks and queues rewards.
@@ -436,7 +485,11 @@ func (s *Service) handleRates(w http.ResponseWriter, r *http.Request) {
 		}
 		s.mu.Lock()
 		s.rates = rates
+		saveErr := s.saveRates(rates)
 		s.mu.Unlock()
+		if saveErr != nil {
+			log.Printf("[rewards] failed to persist rates: %v", saveErr)
+		}
 		writeJSON(w, http.StatusOK, rates)
 		return
 	}
@@ -706,6 +759,34 @@ func (s *Service) loadPendingRewards() ([]PendingReward, error) {
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// loadRates reads persisted reward rates from the settings table.
+// Returns DefaultRewardRates() if no rates have been saved yet.
+func (s *Service) loadRates() RewardRates {
+	var raw string
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key='reward_rates'`).Scan(&raw)
+	if err != nil {
+		return DefaultRewardRates()
+	}
+	var rates RewardRates
+	if err := json.Unmarshal([]byte(raw), &rates); err != nil {
+		return DefaultRewardRates()
+	}
+	return rates
+}
+
+// saveRates persists the current reward rates to the settings table.
+func (s *Service) saveRates(rates RewardRates) error {
+	raw, err := json.Marshal(rates)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(
+		`INSERT OR REPLACE INTO settings (key, value) VALUES ('reward_rates', ?)`,
+		string(raw),
+	)
+	return err
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
