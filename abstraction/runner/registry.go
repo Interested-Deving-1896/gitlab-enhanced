@@ -20,7 +20,11 @@ func FromConfig(cfg *config.Config) (Runner, error) {
 		if !cfg.Cloud.Enabled {
 			return nil, fmt.Errorf("runner.backend is 'blacksmith' but cloud.enabled is false")
 		}
-		return NewBlacksmithRunner(cfg.Runner.Org, cfg.Runner.Token), nil
+		r := NewBlacksmithRunner(cfg.Runner.Org, cfg.Runner.Token)
+		if cfg.Runner.BlacksmithAPIURL != "" {
+			r.WithAPIURL(cfg.Runner.BlacksmithAPIURL)
+		}
+		return r, nil
 
 	default:
 		return nil, fmt.Errorf("unknown runner backend: %q", cfg.Runner.Backend)

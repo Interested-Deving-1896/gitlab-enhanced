@@ -1,0 +1,16 @@
+---
+# ingress-nginx — Kubernetes ingress controller using NGINX.
+# https://github.com/kubernetes/ingress-nginx
+
+nginx_ingress_version: "v1.12.1"
+
+# Bare-metal manifest (NodePort service, no cloud LoadBalancer required).
+nginx_ingress_manifest: >-
+  https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-{{ nginx_ingress_version }}/deploy/static/provider/baremetal/deploy.yaml
+
+# NodePort values for HTTP and HTTPS. Set to 0 to use random ports.
+nginx_ingress_http_nodeport: 30080
+nginx_ingress_https_nodeport: 30443
+
+# Namespace where ingress-nginx is installed.
+nginx_ingress_namespace: ingress-nginx

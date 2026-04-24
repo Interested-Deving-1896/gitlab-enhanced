@@ -7,14 +7,22 @@ import (
 	"time"
 )
 
-func TestNewService(t *testing.T) {
-	svc, err := New(Config{
-		Enabled:    true,
-		ListenAddr: "127.0.0.1:0",
-	})
+func newTestService(t *testing.T, cfg Config) *Service {
+	t.Helper()
+	cfg.Enabled = true
+	if cfg.DBPath == "" {
+		cfg.DBPath = filepath.Join(t.TempDir(), "bandwidth.db")
+	}
+	svc, err := New(cfg)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	t.Cleanup(func() { svc.db.Close() })
+	return svc
+}
+
+func TestNewService(t *testing.T) {
+	svc := newTestService(t, Config{ListenAddr: "127.0.0.1:0"})
 	if svc.cfg.CompressionLevel == 0 {
 		t.Error("expected default compression level to be set")
 	}
@@ -28,15 +36,12 @@ func TestDisabledService(t *testing.T) {
 }
 
 func TestRegisterArtifactSizeLimit(t *testing.T) {
-	svc, _ := New(Config{
-		Enabled:           true,
-		ArtifactMaxSizeMB: 10,
-	})
+	svc := newTestService(t, Config{ArtifactMaxSizeMB: 10})
 
 	// Under limit — should succeed
 	err := svc.RegisterArtifact(ArtifactRecord{
 		Path:      "/tmp/small.zip",
-		SizeBytes: 5 * 1024 * 1024, // 5 MB
+		SizeBytes: 5 * 1024 * 1024,
 		CreatedAt: time.Now(),
 	})
 	if err != nil {
@@ -46,7 +51,7 @@ func TestRegisterArtifactSizeLimit(t *testing.T) {
 	// Over limit — should fail
 	err = svc.RegisterArtifact(ArtifactRecord{
 		Path:      "/tmp/large.zip",
-		SizeBytes: 20 * 1024 * 1024, // 20 MB
+		SizeBytes: 20 * 1024 * 1024,
 		CreatedAt: time.Now(),
 	})
 	if err == nil {
@@ -61,27 +66,53 @@ func TestEvictExpiredArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	svc, _ := New(Config{
-		Enabled:               true,
-		ArtifactRetentionDays: 30,
-	})
+	svc := newTestService(t, Config{ArtifactRetentionDays: 30})
 
 	// Register an artifact created 60 days ago
-	svc.artifacts = []ArtifactRecord{
-		{
-			Path:      artifactPath,
-			SizeBytes: 4,
-			CreatedAt: time.Now().AddDate(0, 0, -60),
-		},
+	if err := svc.RegisterArtifact(ArtifactRecord{
+		Path:      artifactPath,
+		SizeBytes: 4,
+		CreatedAt: time.Now().AddDate(0, 0, -60),
+	}); err != nil {
+		t.Fatal(err)
 	}
 
 	svc.evictArtifacts()
 
-	if len(svc.artifacts) != 0 {
-		t.Errorf("expected 0 artifacts after eviction, got %d", len(svc.artifacts))
-	}
+	// File should be deleted
 	if _, err := os.Stat(artifactPath); !os.IsNotExist(err) {
 		t.Error("expected artifact file to be deleted")
+	}
+
+	// DB record should be gone
+	var count int
+	_ = svc.db.QueryRow(`SELECT COUNT(*) FROM artifacts`).Scan(&count)
+	if count != 0 {
+		t.Errorf("expected 0 artifact records after eviction, got %d", count)
+	}
+}
+
+func TestArtifactPersistenceAcrossRestart(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "bandwidth.db")
+
+	svc1 := newTestService(t, Config{DBPath: dbPath})
+	if err := svc1.RegisterArtifact(ArtifactRecord{
+		Path:      "/tmp/artifact.zip",
+		SizeBytes: 1024,
+		CreatedAt: time.Now(),
+		ProjectID: 5,
+		JobID:     99,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc1.db.Close()
+
+	svc2 := newTestService(t, Config{DBPath: dbPath})
+	var count int
+	_ = svc2.db.QueryRow(`SELECT COUNT(*) FROM artifacts`).Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 artifact after restart, got %d", count)
 	}
 }
 
