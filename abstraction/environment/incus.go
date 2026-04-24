@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -24,7 +25,10 @@ type IncusManager struct {
 	profile string
 	network string
 	idePort int
-	conn    incus.InstanceServer
+
+	connOnce sync.Once
+	conn     incus.InstanceServer
+	connErr  error
 }
 
 func NewIncusManager(socket, profile, network string, idePort int) *IncusManager {
@@ -51,15 +55,15 @@ func NewIncusManager(socket, profile, network string, idePort int) *IncusManager
 func (m *IncusManager) Name() string { return "incus-environment" }
 
 func (m *IncusManager) connect() (incus.InstanceServer, error) {
-	if m.conn != nil {
-		return m.conn, nil
-	}
-	conn, err := incus.ConnectIncusUnix(m.socket, nil)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to Incus at %s: %w", m.socket, err)
-	}
-	m.conn = conn
-	return conn, nil
+	m.connOnce.Do(func() {
+		conn, err := incus.ConnectIncusUnix(m.socket, nil)
+		if err != nil {
+			m.connErr = fmt.Errorf("connecting to Incus at %s: %w", m.socket, err)
+			return
+		}
+		m.conn = conn
+	})
+	return m.conn, m.connErr
 }
 
 func (m *IncusManager) Available(_ context.Context) bool {

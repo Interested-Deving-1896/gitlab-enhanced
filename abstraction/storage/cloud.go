@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"gocloud.dev/blob"
@@ -34,7 +35,10 @@ type CloudBackend struct {
 	provider   string
 	bucketURL  string
 	bucketName string
-	bucket     *blob.Bucket
+
+	once   sync.Once
+	bucket *blob.Bucket
+	openErr error
 }
 
 // CloudOptions configures the cloud backend.
@@ -208,17 +212,19 @@ func (b *CloudBackend) List(ctx context.Context, prefix string) ([]Object, error
 	return objects, nil
 }
 
-// open returns the cached bucket or opens a new connection.
+// open returns the shared bucket, opening it exactly once across all goroutines.
+// A failed open is permanent — the error is cached and returned on every
+// subsequent call so callers can surface it without retrying indefinitely.
 func (b *CloudBackend) open(ctx context.Context) (*blob.Bucket, error) {
-	if b.bucket != nil {
-		return b.bucket, nil
-	}
-	bucket, err := blob.OpenBucket(ctx, b.bucketURL)
-	if err != nil {
-		return nil, fmt.Errorf("cloud: opening bucket %q (%s): %w", b.bucketName, b.provider, err)
-	}
-	b.bucket = bucket
-	return bucket, nil
+	b.once.Do(func() {
+		bucket, err := blob.OpenBucket(ctx, b.bucketURL)
+		if err != nil {
+			b.openErr = fmt.Errorf("cloud: opening bucket %q (%s): %w", b.bucketName, b.provider, err)
+			return
+		}
+		b.bucket = bucket
+	})
+	return b.bucket, b.openErr
 }
 
 // buildBucketURL constructs the gocloud.dev bucket URL for the given provider.

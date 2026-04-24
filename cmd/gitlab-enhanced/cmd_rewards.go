@@ -67,6 +67,9 @@ func newRewardsServeCmd(cfgRoot *string) *cobra.Command {
 				WebhookSecret:      cfg.Rewards.WebhookSecret,
 				DBPath:             cfg.Rewards.DBPath,
 				BandwidthAddr:      cfg.Rewards.BandwidthAddr,
+				EthRPCURL:          cfg.Rewards.EthRPCURL,
+				EthPrivateKey:      cfg.Rewards.EthPrivateKey,
+				EthChainID:         cfg.Rewards.EthChainID,
 			})
 			if err != nil {
 				return err

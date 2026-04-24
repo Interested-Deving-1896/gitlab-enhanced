@@ -204,6 +204,11 @@ func (s *Service) compressionMiddleware(next http.Handler) http.Handler {
 		if !isCompressible(ct) || buf.overflow {
 			// Pass through unmodified — either non-compressible type or the
 			// response exceeded maxCompressBufferBytes.
+			n := int64(len(buf.body))
+			s.stats.mu.Lock()
+			s.stats.BytesIn += n
+			s.stats.BytesOut += n
+			s.stats.mu.Unlock()
 			w.WriteHeader(buf.code)
 			_, _ = w.Write(buf.body)
 			return
@@ -215,6 +220,11 @@ func (s *Service) compressionMiddleware(next http.Handler) http.Handler {
 		gz, err := gzip.NewWriterLevel(&gzBuf, s.cfg.CompressionLevel)
 		if err != nil {
 			// Compression unavailable — pass through unmodified.
+			n := int64(len(buf.body))
+			s.stats.mu.Lock()
+			s.stats.BytesIn += n
+			s.stats.BytesOut += n
+			s.stats.mu.Unlock()
 			w.WriteHeader(buf.code)
 			_, _ = w.Write(buf.body)
 			return
@@ -223,12 +233,14 @@ func (s *Service) compressionMiddleware(next http.Handler) http.Handler {
 		_ = gz.Close()
 		compressed := gzBuf.String()
 
-		saved := uncompressedSize - int64(len(compressed))
+		compressedSize := int64(len(compressed))
+		saved := uncompressedSize - compressedSize
 		if saved < 0 {
 			saved = 0
 		}
 		s.stats.mu.Lock()
 		s.stats.BytesIn += uncompressedSize
+		s.stats.BytesOut += compressedSize
 		s.stats.BytesSaved += saved
 		s.stats.mu.Unlock()
 
@@ -240,13 +252,22 @@ func (s *Service) compressionMiddleware(next http.Handler) http.Handler {
 }
 
 // compressResponse is the ReverseProxy ModifyResponse hook.
-// It tracks the uncompressed upstream response size for statistics.
-// Actual compression is handled by compressionMiddleware above.
+// Used only to strip upstream Content-Encoding so the reverse proxy does not
+// forward a pre-compressed response that compressionMiddleware would then
+// double-compress. Stats are recorded in compressionMiddleware after we know
+// the actual compressed size.
 func (s *Service) compressResponse(resp *http.Response) error {
-	if resp.ContentLength > 0 && isCompressible(resp.Header.Get("Content-Type")) {
-		s.stats.mu.Lock()
-		s.stats.BytesIn += resp.ContentLength
-		s.stats.mu.Unlock()
+	// If the upstream already sent a compressed response, decompress it so
+	// compressionMiddleware can re-compress at our configured level and track
+	// accurate BytesIn/BytesOut stats.
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gr, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil // leave as-is on error
+		}
+		resp.Body = io.NopCloser(gr)
+		resp.Header.Del("Content-Encoding")
+		resp.ContentLength = -1
 	}
 	return nil
 }
