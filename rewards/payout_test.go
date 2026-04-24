@@ -1,0 +1,145 @@
+package rewards
+
+import (
+	"encoding/hex"
+	"math/big"
+	"strings"
+	"testing"
+)
+
+func TestEncodeTransferCall_Length(t *testing.T) {
+	data := encodeTransferCall("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", big.NewInt(1e18))
+	if len(data) != 68 {
+		t.Errorf("expected 68 bytes, got %d", len(data))
+	}
+}
+
+func TestEncodeTransferCall_Selector(t *testing.T) {
+	data := encodeTransferCall("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", big.NewInt(1))
+	// First 4 bytes must be the transfer(address,uint256) selector: 0xa9059cbb
+	if hex.EncodeToString(data[:4]) != "a9059cbb" {
+		t.Errorf("wrong selector: %s", hex.EncodeToString(data[:4]))
+	}
+}
+
+func TestEncodeTransferCall_AddressPadding(t *testing.T) {
+	addr := "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+	data := encodeTransferCall(addr, big.NewInt(1))
+	// Bytes 4-15 (12 bytes) must be zero padding for the address.
+	for i := 4; i < 16; i++ {
+		if data[i] != 0 {
+			t.Errorf("expected zero padding at byte %d, got 0x%02x", i, data[i])
+		}
+	}
+	// Bytes 16-35 must contain the 20-byte address.
+	addrHex := strings.ToLower(strings.TrimPrefix(addr, "0x"))
+	encoded := hex.EncodeToString(data[16:36])
+	if encoded != addrHex {
+		t.Errorf("address mismatch: want %s, got %s", addrHex, encoded)
+	}
+}
+
+func TestEncodeTransferCall_Amount(t *testing.T) {
+	// 1 BAT = 1e18 wei
+	amount := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+	data := encodeTransferCall("0x0000000000000000000000000000000000000001", amount)
+	// Last 32 bytes encode the amount big-endian.
+	encoded := new(big.Int).SetBytes(data[36:68])
+	if encoded.Cmp(amount) != 0 {
+		t.Errorf("amount mismatch: want %s, got %s", amount, encoded)
+	}
+}
+
+func TestBatToWei_OneBAT(t *testing.T) {
+	wei := batToWei(1.0)
+	expected := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+	if wei.Cmp(expected) != 0 {
+		t.Errorf("1 BAT: want %s wei, got %s", expected, wei)
+	}
+}
+
+func TestBatToWei_FractionalBAT(t *testing.T) {
+	wei := batToWei(0.25)
+	// 0.25 BAT = 25e16 wei
+	expected := new(big.Int).Mul(big.NewInt(25), new(big.Int).Exp(big.NewInt(10), big.NewInt(16), nil))
+	if wei.Cmp(expected) != 0 {
+		t.Errorf("0.25 BAT: want %s wei, got %s", expected, wei)
+	}
+}
+
+func TestRLPEncodeUint_Zero(t *testing.T) {
+	b := rlpEncodeUint(0)
+	if len(b) != 1 || b[0] != 0x80 {
+		t.Errorf("RLP(0): want [0x80], got %x", b)
+	}
+}
+
+func TestRLPEncodeUint_SmallValue(t *testing.T) {
+	// Values < 0x80 encode as a single byte.
+	b := rlpEncodeUint(1)
+	if len(b) != 1 || b[0] != 0x01 {
+		t.Errorf("RLP(1): want [0x01], got %x", b)
+	}
+}
+
+func TestRLPEncodeList_Empty(t *testing.T) {
+	b := rlpEncodeList(nil)
+	// Empty list encodes as 0xc0.
+	if len(b) != 1 || b[0] != 0xc0 {
+		t.Errorf("RLP([]): want [0xc0], got %x", b)
+	}
+}
+
+func TestSecp256k1_IsOnCurve_Generator(t *testing.T) {
+	c := secp256k1Curve()
+	p := c.Params()
+	if !c.IsOnCurve(p.Gx, p.Gy) {
+		t.Error("generator point is not on secp256k1 curve")
+	}
+}
+
+func TestSecp256k1_ScalarBaseMult_Consistency(t *testing.T) {
+	c := secp256k1Curve()
+	// 2*G should equal G+G.
+	k := []byte{2}
+	x1, y1 := c.ScalarBaseMult(k)
+	p := c.Params()
+	x2, y2 := c.Add(p.Gx, p.Gy, p.Gx, p.Gy)
+	if x1.Cmp(x2) != 0 || y1.Cmp(y2) != 0 {
+		t.Error("2*G != G+G on secp256k1")
+	}
+}
+
+func TestHexToECDSA_InvalidLength(t *testing.T) {
+	_, err := hexToECDSA("deadbeef") // too short
+	if err == nil {
+		t.Error("expected error for short key, got nil")
+	}
+}
+
+func TestHexToECDSA_InvalidHex(t *testing.T) {
+	_, err := hexToECDSA("zzzz")
+	if err == nil {
+		t.Error("expected error for invalid hex, got nil")
+	}
+}
+
+func TestSubmitERC20Payout_MissingRPCURL(t *testing.T) {
+	_, err := submitERC20Payout(EthConfig{
+		PrivateKeyHex: strings.Repeat("ab", 32),
+		WalletAddress: "0x1234",
+	}, "0x5678", 1.0)
+	if err == nil || !strings.Contains(err.Error(), "eth_rpc_url") {
+		t.Errorf("expected eth_rpc_url error, got: %v", err)
+	}
+}
+
+func TestSubmitERC20Payout_MissingPrivateKey(t *testing.T) {
+	_, err := submitERC20Payout(EthConfig{
+		RPCURL:        "http://localhost:8545",
+		WalletAddress: "0x1234",
+	}, "0x5678", 1.0)
+	if err == nil || !strings.Contains(err.Error(), "eth_private_key") {
+		t.Errorf("expected eth_private_key error, got: %v", err)
+	}
+}

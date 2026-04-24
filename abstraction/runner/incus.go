@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -21,7 +22,10 @@ type IncusRunner struct {
 	socket    string
 	vmProfile string
 	network   string
-	conn      incus.InstanceServer
+
+	connOnce sync.Once
+	conn     incus.InstanceServer
+	connErr  error
 }
 
 func NewIncusRunner(socket, vmProfile, network string) *IncusRunner {
@@ -40,15 +44,15 @@ func NewIncusRunner(socket, vmProfile, network string) *IncusRunner {
 func (r *IncusRunner) Name() string { return "incus-runner:" + r.vmProfile }
 
 func (r *IncusRunner) connect() (incus.InstanceServer, error) {
-	if r.conn != nil {
-		return r.conn, nil
-	}
-	conn, err := incus.ConnectIncusUnix(r.socket, nil)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to Incus at %s: %w", r.socket, err)
-	}
-	r.conn = conn
-	return conn, nil
+	r.connOnce.Do(func() {
+		conn, err := incus.ConnectIncusUnix(r.socket, nil)
+		if err != nil {
+			r.connErr = fmt.Errorf("connecting to Incus at %s: %w", r.socket, err)
+			return
+		}
+		r.conn = conn
+	})
+	return r.conn, r.connErr
 }
 
 func (r *IncusRunner) Available(_ context.Context) bool {
