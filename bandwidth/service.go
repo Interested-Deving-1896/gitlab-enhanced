@@ -200,8 +200,9 @@ func (s *Service) compressionMiddleware(next http.Handler) http.Handler {
 		s.stats.mu.Unlock()
 
 		ct := buf.header.Get("Content-Type")
-		if !isCompressible(ct) {
-			// Pass through unmodified.
+		if !isCompressible(ct) || buf.overflow {
+			// Pass through unmodified — either non-compressible type or the
+			// response exceeded maxCompressBufferBytes.
 			w.WriteHeader(buf.code)
 			_, _ = w.Write(buf.body)
 			return
@@ -259,17 +260,34 @@ func isCompressible(contentType string) bool {
 	return false
 }
 
+// maxCompressBufferBytes is the largest response body we will buffer for
+// compression. Responses larger than this are passed through uncompressed to
+// avoid unbounded memory growth under load. 32 MiB covers all realistic GitLab
+// API and web UI responses; LFS object transfers are already excluded upstream.
+const maxCompressBufferBytes = 32 << 20 // 32 MiB
+
 // bufferedResponseWriter captures the upstream response body and headers so
 // compressionMiddleware can inspect Content-Type before deciding to compress.
+// Once the body exceeds maxCompressBufferBytes the overflow flag is set and
+// subsequent writes are discarded — the caller must pass through uncompressed.
 type bufferedResponseWriter struct {
-	header http.Header
-	body   []byte
-	code   int
+	header   http.Header
+	body     []byte
+	code     int
+	overflow bool
 }
 
-func (b *bufferedResponseWriter) Header() http.Header        { return b.header }
-func (b *bufferedResponseWriter) WriteHeader(code int)       { b.code = code }
+func (b *bufferedResponseWriter) Header() http.Header  { return b.header }
+func (b *bufferedResponseWriter) WriteHeader(code int) { b.code = code }
 func (b *bufferedResponseWriter) Write(p []byte) (int, error) {
+	if b.overflow {
+		return len(p), nil // discard — will be passed through uncompressed
+	}
+	if len(b.body)+len(p) > maxCompressBufferBytes {
+		b.overflow = true
+		b.body = nil // release already-buffered memory immediately
+		return len(p), nil
+	}
 	b.body = append(b.body, p...)
 	return len(p), nil
 }
@@ -340,8 +358,13 @@ func (s *Service) DeduplicateLFSObject(oid string, size int64) (DedupResult, err
 	}
 
 	// First time we see this content hash — register objPath as the canonical copy.
-	_ = os.MkdirAll(dedupDir, 0755)
-	_ = os.Symlink(objPath, dedupPath)
+	if err := os.MkdirAll(dedupDir, 0755); err != nil {
+		return DedupResult{}, fmt.Errorf("dedup: create index directory %s: %w", dedupDir, err)
+	}
+	if err := os.Symlink(objPath, dedupPath); err != nil && !os.IsExist(err) {
+		// IsExist means a concurrent dedup already registered this hash — not an error.
+		log.Printf("[bandwidth] dedup: register %s → %s: %v", hash, objPath, err)
+	}
 
 	return DedupResult{OID: oid, SizeBytes: size, Duplicate: false}, nil
 }

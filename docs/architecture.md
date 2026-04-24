@@ -61,6 +61,8 @@ cloud providers as an optional secondary layer for storage and compute.
 | Network filter | adblock-proxy (Rust) | Ansible | `utils/adblock-proxy/` |
 | BAT rewards | rewards service (Go) | manual (opt-in) | `rewards/` |
 | Bandwidth proxy | bandwidth service (Go) | manual (opt-in) | `bandwidth/` |
+| Persistence | SQLite (modernc.org/sqlite) | shared by rewards + bandwidth | `store/` |
+| K8s add-ons | local-path-provisioner + ingress-nginx | Ansible | `runtime/k8s-in-incus/` |
 
 ## Optional services
 
@@ -81,19 +83,23 @@ BAT (Basic Attention Token) tips for contributors. Reward triggers: merged MR
 (1.0 BAT), closed issue (0.25 BAT), successful pipeline (0.1 BAT), repository
 star (0.05 BAT). Contributors register their ERC-20 wallet address once via
 `POST /wallet/register`. Payout is triggered manually via `gitlab-enhanced
-rewards payout`. The on-chain ERC-20 transfer is intentionally stubbed — it
-logs the payout intent until `go-ethereum` or the Uphold REST API is integrated.
+rewards payout`, which submits transactions through the Uphold REST API
+(client-credentials OAuth2 + committed transaction). Wallet registrations,
+pending rewards, and payout history are persisted to SQLite so state survives
+restarts. Incoming webhooks are validated against a configured secret token.
 
 ### Bandwidth proxy (`bandwidth.enabled: true`)
 
 A Go HTTP reverse proxy in front of GitLab that provides:
-1. **Gzip compression** — buffers upstream responses, inspects Content-Type,
-   compresses only text/JSON/JS/XML payloads (skips binary LFS transfers).
+1. **Gzip compression** — buffers upstream responses (up to 32 MiB), inspects
+   Content-Type, compresses only text/JSON/JS/XML payloads (skips binary LFS
+   transfers). Responses exceeding the buffer cap pass through uncompressed.
 2. **LFS deduplication** — SHA-256 content-addressed hardlinks. When two
    repositories store the same large file, the second copy is replaced with a
    hardlink to the first, saving disk space.
 3. **CI artifact policies** — configurable per-artifact size limit and
-   retention TTL, enforced by a background goroutine every 6 hours.
+   retention TTL, enforced by a background goroutine every 6 hours. Artifact
+   records are persisted to SQLite so the enforcer survives restarts.
 
 ## Abstraction layer
 
@@ -107,7 +113,7 @@ abstraction/
 │   ├── local   — local filesystem
 │   ├── cloud   — gocloud.dev/blob (S3, GCS, Azure, MinIO, Ceph, R2)
 │   ├── ipfs    — Kubo HTTP API
-│   └── chain   — ordered fallback across multiple backends
+│   └── chain   — ordered fallback for reads; fan-out writes to all backends
 ├── build/      — Builder interface: Build(context, spec) → image ref
 │   ├── incus   — BuildKit inside an Incus VM
 │   └── depot   — Depot remote build service
@@ -118,6 +124,9 @@ abstraction/
     ├── incus   — Incus containers with OpenVSCode Server
     ├── gitpod-k8s — Gitpod Classic on K8s
     └── ona     — Ona (Gitpod Flex) API
+
+store/          — shared SQLite persistence (WAL mode, auto-migration)
+                  used by rewards/ and bandwidth/ for durable state
 ```
 
 ## Configuration layering
