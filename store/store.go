@@ -22,9 +22,25 @@ func Open(path string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return nil, fmt.Errorf("store: create directory: %w", err)
 	}
-	db, err := sql.Open("sqlite", path+"?_journal_mode=WAL&_foreign_keys=on")
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("store: open %s: %w", path, err)
+	}
+	// Limit to one open connection so that PRAGMAs applied below are
+	// effective for all queries. SQLite's WAL mode allows concurrent readers
+	// but only one writer; a single connection pool entry serialises writes
+	// without SQLITE_BUSY errors.
+	db.SetMaxOpenConns(1)
+	// modernc.org/sqlite ignores DSN pragmas; apply them via Exec instead.
+	for _, pragma := range []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA foreign_keys=ON",
+		"PRAGMA busy_timeout=5000",
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("store: %s: %w", pragma, err)
+		}
 	}
 	if err := migrate(db); err != nil {
 		db.Close()
@@ -65,6 +81,11 @@ func migrate(db *sql.DB) error {
 			created_at  TEXT NOT NULL,
 			project_id  INTEGER NOT NULL DEFAULT 0,
 			job_id      INTEGER NOT NULL DEFAULT 0
+		)`,
+		// generic key-value settings store (used for persisting reward rates, etc.)
+		`CREATE TABLE IF NOT EXISTS settings (
+			key    TEXT PRIMARY KEY,
+			value  TEXT NOT NULL
 		)`,
 	}
 	for _, s := range stmts {

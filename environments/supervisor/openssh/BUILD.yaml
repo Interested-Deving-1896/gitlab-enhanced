@@ -1,0 +1,5 @@
+packages:
+  - name: docker-build
+    type: docker
+    config:
+      dockerfile: leeway.Dockerfile

@@ -1,0 +1,24 @@
+name: Run Autofix
+on:
+  schedule:
+    - cron:  '0 2 * * MON-FRI' # every workday at 2AM
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # pin@v5
+
+    - name: Setup Node
+      uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # pin@v5
+      with:
+        node-version: "22.x"
+
+    - name: Run autofix
+      run: |
+        npm install -g autofix@0.6.0
+        autofix --branches --pull-request
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

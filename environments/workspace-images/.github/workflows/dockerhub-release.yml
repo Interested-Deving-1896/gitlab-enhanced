@@ -1,0 +1,124 @@
+name: Publish latest images to Docker Hub
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 10 * * MON"
+
+jobs:
+  # Sync the 'latest' tag from GAR to Docker Hub
+  #
+  # From your GitHub repo clock Settings. In the left menu, click Environments.
+  # Click New environment, set the name production, and click Configure environment.
+  # Check the "Required reviewers" box and enter at least one user or team name.
+  promote-latest:
+    if: (github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    environment: "production"
+    permissions:
+      contents: "read"
+      id-token: "write"
+    env:
+      WORKLOAD_IDENTITY_POOL_ID: projects/665270063338/locations/global/workloadIdentityPools/workspace-images-github-actions/providers/workspace-images-gha-provider
+      GAR_IMAGE_REGISTRY: europe-docker.pkg.dev
+      DH_IMAGE_REGISTRY: registry.hub.docker.com
+      IAM_SERVICE_ACCOUNT: workspace-images-gha-sa@gitpod-artifacts.iam.gserviceaccount.com
+      SKOPEO_VERSION: 1.15.2
+
+    steps:
+      - name: 📥 Checkout workspace-images
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # pin@v5
+        with:
+          repository: gitpod-io/workspace-images
+
+      - name: 🔧 Setup tools
+        run: |
+          sudo apt-get install python3-pip
+          sudo pip3 install yq
+
+      - name: 🔆 Setup skopeo
+        env:
+          SKOPEO_VERSION: ${{env.SKOPEO_VERSION}}
+        run: |
+          # Generate a temporal file to store skopeo auth
+          SKOPEO_AUTH_DIR=$(mktemp -d)
+          # to test locally
+          # export GITHUB_ENV=$(mktemp)
+          echo "SKOPEO_AUTH_DIR=${SKOPEO_AUTH_DIR}" >> $GITHUB_ENV
+          # Build a fake skopeo script to run a container
+          cat <<EOF | sudo tee /usr/local/bin/skopeo > /dev/null
+          #/bin/bash
+
+          docker run --rm \
+            -v $SKOPEO_AUTH_DIR:/skopeo.auth \
+            -e REGISTRY_AUTH_FILE=/skopeo.auth/auth \
+            quay.io/skopeo/stable:v$SKOPEO_VERSION "\$@"
+          EOF
+
+          sudo chmod +x /usr/local/bin/skopeo
+
+          # don't fail parsing the file while it contains empty creds the first time
+          echo "{}" > $SKOPEO_AUTH_DIR/auth
+
+      - name: ☁️ Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # pin@v3.0.1
+        with:
+          version: 393.0.0
+
+      - name: 🔐 Authenticate to Google Cloud
+        id: "auth"
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # pin@v3.0.0
+        with:
+          token_format: "access_token"
+          workload_identity_provider: ${{env.WORKLOAD_IDENTITY_POOL_ID}}
+          service_account: ${{env.IAM_SERVICE_ACCOUNT}}
+
+      - name: ✍🏽 Login to GAR using skopeo
+        env:
+          SKOPEO_AUTH_DIR: ${{env.SKOPEO_AUTH_DIR}}
+        run: |
+          sudo -E skopeo login -u oauth2accesstoken --password=${{ steps.auth.outputs.access_token }} ${{env.GAR_IMAGE_REGISTRY}}
+
+      - name: ✍🏽 Login to Docker Hub using skopeo
+        env:
+          docker_user: ${{ secrets.DOCKERHUB_USER_NAME }}
+          docker_password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+          SKOPEO_AUTH_DIR: ${{env.SKOPEO_AUTH_DIR}}
+        run: |
+          sudo -E skopeo login -u ${{ env.docker_user }} --password=${{ env.docker_password }} ${{ env.DH_IMAGE_REGISTRY }}
+
+      - name: 🐳 Sync latest tag of images to Docker Hub
+        env:
+          SKOPEO_AUTH_DIR: ${{env.SKOPEO_AUTH_DIR}}
+        run: |
+          IMAGES=$(cat .github/promote-images.yml | yq '."europe-docker.pkg.dev/gitpod-artifacts/docker-dev"."images-by-tag-regex"|keys[]' -r)
+          for IMAGE in $IMAGES;
+          do
+            sudo -E skopeo copy --format=oci --dest-oci-accept-uncompressed-layers --retry-times=5 \
+            docker://${{ env.GAR_IMAGE_REGISTRY }}/gitpod-artifacts/docker-dev/$IMAGE:latest \
+            docker://${{ env.DH_IMAGE_REGISTRY }}/gitpod/$IMAGE:latest
+          done
+  notify:
+    if: always() && ((github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    needs: promote-latest
+    runs-on: ubuntu-latest
+    steps:
+      - name: The release was successful
+        id: slack-success
+        if: needs.promote-latest.result == 'success'
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # pin@v2.1.1
+        with:
+          webhook-type: incoming-webhook
+          webhook: ${{ secrets.RELEASE_NOTIFY_WEBHOOK }}
+          payload: |
+            text: "The release was successful :rocket:"
+
+      - name: The release was not successful
+        id: slack-failure
+        if: needs.promote-latest.result != 'success'
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # pin@v2.1.1
+        with:
+          webhook-type: incoming-webhook
+          webhook: ${{ secrets.RELEASE_NOTIFY_WEBHOOK }}
+          payload: |
+            text: ${{ format('The release had trouble :construction:, the result was: {0}', needs.promote-latest.result) }}

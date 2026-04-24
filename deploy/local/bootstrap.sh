@@ -46,7 +46,7 @@ if [[ "$ID" != "ubuntu" && "$ID" != "debian" ]]; then
 fi
 
 # ── Versions ─────────────────────────────────────────────────────────────────
-GO_VERSION="${GO_VERSION:-1.24.2}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 BUILDKIT_VERSION="${BUILDKIT_VERSION:-v0.19.0}"
 SOFT_SERVE_VERSION="${SOFT_SERVE_VERSION:-v0.7.4}"
 RUDOLFS_VERSION="${RUDOLFS_VERSION:-0.3.7}"

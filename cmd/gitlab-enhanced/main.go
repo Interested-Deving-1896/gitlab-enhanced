@@ -4,6 +4,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/version"
 )
 
 func main() {
@@ -16,8 +18,9 @@ func newRootCmd() *cobra.Command {
 	var cfgRoot string
 
 	root := &cobra.Command{
-		Use:   "gitlab-enhanced",
-		Short: "Local-first GitLab platform — packaging, environments, LFS, CI",
+		Use:     "gitlab-enhanced",
+		Short:   "Local-first GitLab platform — packaging, environments, LFS, CI",
+		Version: version.String(),
 		Long: `gitlab-enhanced manages a self-hosted GitLab stack running on Incus.
 
 All components run locally by default. Cloud providers are opt-in overlays.

@@ -91,6 +91,25 @@ yamllint:
         -path './.git' \
         -o -path './vendor' \
         -o -path './node_modules' \
+        -o -path './environments/workspace-images' \
+        -o -path './environments/supervisor' \
+        -o -path './environments/content-service' \
+        -o -path './environments/openvscode-server' \
+        -o -path './environments/browser-extension' \
+        -o -path './environments/adapters' \
+        -o -path './lfs/server' \
+        -o -path './lfs/transfer' \
+        -o -path './lfs/adapters' \
+        -o -path './ipfs/brig' \
+        -o -path './hosting/soft-serve' \
+        -o -path './hosting/soft-serve-action' \
+        -o -path './runtime/blincus' \
+        -o -path './runtime/k8s-in-incus' \
+        -o -path './core/omnibus' \
+        -o -path './core/environment-toolkit' \
+        -o -path './utils/github-directory-downloader' \
+        -o -path './utils/github-parser' \
+        -o -path './utils/gitpack' \
       \) -prune -o \( -name '*.yml' -o -name '*.yaml' \) -print \
       | xargs yamllint -c .yamllint.yaml
 

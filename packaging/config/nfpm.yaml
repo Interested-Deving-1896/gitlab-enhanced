@@ -52,6 +52,14 @@ contents:
     file_info:
       mode: 0755
 
+  # Systemd service units for optional services
+  - src: packaging/definitions/gitlab-enhanced-rewards.service
+    dst: /usr/lib/systemd/system/gitlab-enhanced-rewards.service
+  - src: packaging/definitions/gitlab-enhanced-bandwidth.service
+    dst: /usr/lib/systemd/system/gitlab-enhanced-bandwidth.service
+  - src: packaging/definitions/gitlab-enhanced-adblock.service
+    dst: /usr/lib/systemd/system/gitlab-enhanced-adblock.service
+
 scripts:
   postinstall: packaging/scripts/postinstall.sh
   preremove: packaging/scripts/preremove.sh

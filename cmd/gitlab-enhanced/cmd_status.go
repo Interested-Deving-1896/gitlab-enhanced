@@ -82,8 +82,11 @@ func runStatus(root string, jsonOut bool) error {
 }
 
 // incusInstanceIP returns the first IPv4 address of a running Incus instance,
-// or "" if the instance is not found or not running.
+// or "" if the instance is not found, not running, or incus is not installed.
 func incusInstanceIP(name string) string {
+	if checkBinary("incus") != nil {
+		return ""
+	}
 	out, err := runCmdSilent("incus", "list", name, "--format", "csv", "-c", "4")
 	if err != nil {
 		return ""
@@ -189,6 +192,8 @@ func checkHTTP(client *http.Client, name, backend string, urls []string) compone
 
 // checkIncusInstance checks whether an Incus instance is running.
 // Falls back to a "not applicable" status for non-Incus backends.
+// Reports "incus not installed" when the binary is absent rather than
+// misreporting the instance as simply "not running".
 func checkIncusInstance(name, backend, instance string) componentStatus {
 	if backend != "incus" && backend != "" {
 		return componentStatus{
@@ -196,6 +201,14 @@ func checkIncusInstance(name, backend, instance string) componentStatus {
 			Backend: backend,
 			OK:      true,
 			Detail:  fmt.Sprintf("managed externally (%s)", backend),
+		}
+	}
+	if checkBinary("incus") != nil {
+		return componentStatus{
+			Name:    name,
+			Backend: "incus",
+			OK:      false,
+			Detail:  "incus not installed (not found in PATH)",
 		}
 	}
 	if incusInstanceRunning(instance) {
@@ -218,10 +231,12 @@ func checkIncusInstance(name, backend, instance string) componentStatus {
 func checkEnvironmentBackend(name, backend string) componentStatus {
 	switch backend {
 	case "incus":
-		// Check that the incus socket is accessible
+		if checkBinary("incus") != nil {
+			return componentStatus{Name: name, Backend: backend, OK: false, Detail: "incus not installed (not found in PATH)"}
+		}
 		_, err := runCmdSilent("incus", "list", "--format", "csv")
 		if err != nil {
-			return componentStatus{Name: name, Backend: backend, OK: false, Detail: "incus not accessible"}
+			return componentStatus{Name: name, Backend: backend, OK: false, Detail: "incus not accessible (daemon not running?)"}
 		}
 		return componentStatus{Name: name, Backend: backend, OK: true, Detail: "incus accessible"}
 	case "gitpod-k8s":
