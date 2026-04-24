@@ -1,0 +1,14 @@
+---
+# Rancher local-path-provisioner — provides a default StorageClass backed by
+# host-path volumes on each node. Sufficient for single-node and dev clusters.
+# https://github.com/rancher/local-path-provisioner
+
+local_path_provisioner_version: "v0.0.30"
+local_path_provisioner_manifest: >-
+  https://raw.githubusercontent.com/rancher/local-path-provisioner/{{ local_path_provisioner_version }}/deploy/local-path-storage.yaml
+
+# Set to true to make local-path the cluster default StorageClass.
+local_path_provisioner_set_default: true
+
+# Directory on each node where volumes are created.
+local_path_provisioner_host_path: /opt/local-path-provisioner

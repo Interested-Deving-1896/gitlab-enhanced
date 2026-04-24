@@ -1,0 +1,31 @@
+---
+# Installs cluster add-ons required for Gitpod Classic and GitLab Runner:
+#
+#   1. local-path-provisioner — default StorageClass backed by host-path volumes.
+#      Required for any PersistentVolumeClaim (Gitpod workspaces, GitLab Runner
+#      cache, etc.) on a bare-metal / Incus cluster with no cloud storage.
+#
+#   2. ingress-nginx — NGINX ingress controller using NodePort (no cloud
+#      LoadBalancer required). Exposes GitLab and Gitpod on fixed ports
+#      (default: HTTP 30080, HTTPS 30443) on the control-plane VM IP.
+#
+# Run after k8s-cluster.yml:
+#
+#   ansible-playbook runtime/k8s-in-incus/ansible/playbooks/k8s-addons.yml
+#
+# Override defaults:
+#
+#   ansible-playbook ... \
+#     -e nginx_ingress_http_nodeport=80 \
+#     -e nginx_ingress_https_nodeport=443 \
+#     -e local_path_provisioner_host_path=/data/k8s-volumes
+
+- name: Install cluster add-ons
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    incus_vm_name: control-plane
+  roles:
+    - role: local_path_provisioner
+    - role: nginx_ingress

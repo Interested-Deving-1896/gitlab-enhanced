@@ -57,13 +57,8 @@ func runStatus(root string, jsonOut bool) error {
 
 	checks := []componentStatus{
 		checkHTTP(client, "gitlab", cfg.GitLab.Edition, gitlabHealthURLs(cfg.GitLab.Domain)),
-		checkHTTP(client, "lfs", cfg.LFS.Server, []string{
-			"http://localhost:8080/",
-			"http://localhost:8080/healthz",
-		}),
-		checkHTTP(client, "soft-serve", "soft-serve", []string{
-			"http://localhost:23231/",
-		}),
+		checkLFS(client, cfg.LFS.Server, cfg.GitLab.Domain),
+		checkSoftServe(client, cfg.GitLab.Domain),
 		checkIncusInstance("runner", cfg.Runner.Backend, "gitlab-runner"),
 		checkIncusInstance("build", cfg.Build.Backend, "buildkit"),
 		checkEnvironmentBackend("environment", cfg.Environment.Backend),
@@ -84,6 +79,67 @@ func runStatus(root string, jsonOut bool) error {
 
 	printStatusTable(checks)
 	return nil
+}
+
+// incusInstanceIP returns the first IPv4 address of a running Incus instance,
+// or "" if the instance is not found or not running.
+func incusInstanceIP(name string) string {
+	out, err := runCmdSilent("incus", "list", name, "--format", "csv", "-c", "4")
+	if err != nil {
+		return ""
+	}
+	// Output format: "10.200.0.5/24 (eth0)"
+	line := strings.TrimSpace(strings.Split(out, "\n")[0])
+	if line == "" {
+		return ""
+	}
+	// Strip CIDR suffix and interface annotation
+	ip := strings.Fields(line)[0]
+	if idx := strings.Index(ip, "/"); idx >= 0 {
+		ip = ip[:idx]
+	}
+	return ip
+}
+
+// checkLFS probes the LFS server. It first tries to resolve the Incus
+// container IP (for the "lfs" container), then falls back to the GitLab
+// domain and finally localhost.
+func checkLFS(client *http.Client, server, domain string) componentStatus {
+	ip := incusInstanceIP("lfs")
+	var urls []string
+	if ip != "" {
+		urls = append(urls,
+			fmt.Sprintf("http://%s:8080/", ip),
+			fmt.Sprintf("http://%s:8080/healthz", ip),
+		)
+	}
+	if domain != "" {
+		urls = append(urls,
+			fmt.Sprintf("http://lfs.%s/", domain),
+			fmt.Sprintf("http://lfs.%s/healthz", domain),
+		)
+	}
+	// localhost fallback for dev setups where LFS runs on the host
+	urls = append(urls,
+		"http://localhost:8080/",
+		"http://localhost:8080/healthz",
+	)
+	return checkHTTP(client, "lfs", server, urls)
+}
+
+// checkSoftServe probes the Soft Serve git server. Resolves the Incus
+// container IP first, then falls back to the GitLab domain and localhost.
+func checkSoftServe(client *http.Client, domain string) componentStatus {
+	ip := incusInstanceIP("soft-serve")
+	var urls []string
+	if ip != "" {
+		urls = append(urls, fmt.Sprintf("http://%s:23231/", ip))
+	}
+	if domain != "" {
+		urls = append(urls, fmt.Sprintf("http://soft-serve.%s/", domain))
+	}
+	urls = append(urls, "http://localhost:23231/")
+	return checkHTTP(client, "soft-serve", "soft-serve", urls)
 }
 
 // gitlabHealthURLs returns candidate health endpoints for GitLab.

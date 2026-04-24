@@ -53,6 +53,10 @@ venv/
 *.p12
 secrets/
 
+# Local config overrides (contain credentials or machine-specific paths)
+config/local.yaml
+config/cloud.yaml
+
 # IDE
 .idea/
 .vscode/

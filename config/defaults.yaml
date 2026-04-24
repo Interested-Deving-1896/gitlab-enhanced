@@ -5,6 +5,8 @@
 gitlab:
   domain: "gitlab.local"
   edition: "ce"                    # ce or ee
+  admin_email: ""                  # set via GITLAB_ENHANCED_GITLAB_ADMIN_EMAIL
+  admin_password: ""               # set via GITLAB_ENHANCED_GITLAB_ADMIN_PASSWORD
 
 storage:
   backend: local                   # local | chain | ipfs | cloud
@@ -16,17 +18,20 @@ build:
   backend: incus
   socket: /var/lib/incus/unix.socket
   cache_pool: default
+  buildkit_version: ""             # pin e.g. "v0.13.0"; empty = latest stable
 
 runner:
   backend: incus
   vm_profile: gitlab-runner
-  concurrent: 4
+  concurrent: 4                    # override via GITLAB_ENHANCED_RUNNER_CONCURRENT
+  blacksmith_api_url: ""           # override for self-hosted Blacksmith; set via GITLAB_ENHANCED_RUNNER_BLACKSMITH_API_URL
 
 lfs:
   server: rudolfs
   backend: local
   path: /var/lib/gitlab-enhanced/lfs
   encryption: false                # set true and provide key for encrypted LFS
+  encryption_key: ""               # set via GITLAB_ENHANCED_LFS_ENCRYPTION_KEY
 
 ipfs:
   enabled: false                   # opt-in
@@ -62,15 +67,19 @@ rewards:
   wallet_address: ""               # ERC-20 wallet address for receiving BAT
   uphold_client_id: ""             # optional: Uphold custodial wallet API
   uphold_client_secret: ""         # set via GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_SECRET
-  min_payout_bat: 5.0              # minimum BAT balance before auto-payout
+  min_payout_bat: 5.0              # minimum BAT balance before auto-payout; override via GITLAB_ENHANCED_REWARDS_MIN_PAYOUT_BAT
   listen_addr: "127.0.0.1:6061"
+  webhook_secret: ""               # must match the secret token set in GitLab Admin > System Hooks; set via GITLAB_ENHANCED_REWARDS_WEBHOOK_SECRET
+  db_path: ""                      # SQLite file for persistence; defaults to /var/lib/gitlab-enhanced/rewards.db
+  bandwidth_addr: ""               # address of bandwidth service for artifact auto-registration (e.g. 127.0.0.1:6062)
 
 bandwidth:
   enabled: false                   # set true to start bandwidth proxy
   listen_addr: "127.0.0.1:6062"
   upstream_gitlab: ""              # defaults to http://<gitlab.domain>; override for non-standard ports
-  compression_level: 6             # gzip level 1-9 (6 = good balance of speed/ratio)
+  compression_level: 6             # gzip level 1-9 (6 = good balance of speed/ratio); override via GITLAB_ENHANCED_BANDWIDTH_COMPRESSION_LEVEL
   lfs_dedup_enabled: true          # hardlink identical LFS objects across repos
-  artifact_max_size_mb: 0          # 0 = unlimited; set e.g. 500 to cap at 500 MB
-  artifact_retention_days: 0       # 0 = keep forever; set e.g. 30 for 30-day TTL
-  cache_max_size_gb: 0             # 0 = unlimited CI cache size
+  artifact_max_size_mb: 0          # 0 = unlimited; set e.g. 500 to cap at 500 MB; override via GITLAB_ENHANCED_BANDWIDTH_ARTIFACT_MAX_SIZE_MB
+  artifact_retention_days: 0       # 0 = keep forever; set e.g. 30 for 30-day TTL; override via GITLAB_ENHANCED_BANDWIDTH_ARTIFACT_RETENTION_DAYS
+  cache_max_size_gb: 0             # 0 = unlimited CI cache size; override via GITLAB_ENHANCED_BANDWIDTH_CACHE_MAX_SIZE_GB
+  db_path: ""                      # SQLite file for artifact persistence; defaults to /var/lib/gitlab-enhanced/bandwidth.db

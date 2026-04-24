@@ -3,12 +3,23 @@
 
 gitlab:
   domain: "gitlab.example.internal"
+  # admin_email: "admin@gitlab.example.internal"   # set via GITLAB_ENHANCED_GITLAB_ADMIN_EMAIL
+  # admin_password: ""                             # set via GITLAB_ENHANCED_GITLAB_ADMIN_PASSWORD
 
 storage:
   path: /data/gitlab-enhanced
 
 lfs:
   path: /data/gitlab-enhanced/lfs
+  # encryption: true
+  # encryption_key: ""   # set via GITLAB_ENHANCED_LFS_ENCRYPTION_KEY
+
+runner:
+  concurrent: 4   # override via GITLAB_ENHANCED_RUNNER_CONCURRENT
+  # blacksmith_api_url: ""   # set via GITLAB_ENHANCED_RUNNER_BLACKSMITH_API_URL
+
+build:
+  # buildkit_version: "v0.13.0"   # pin a specific BuildKit version
 
 environment:
   network: incusbr0
@@ -30,8 +41,13 @@ environment:
 #   enabled: true
 #   publisher_id: "your-brave-publisher-id"
 #   wallet_address: "0xYourERC20WalletAddress"
-#   min_payout_bat: 5.0
+#   min_payout_bat: 5.0              # override via GITLAB_ENHANCED_REWARDS_MIN_PAYOUT_BAT
 #   listen_addr: "127.0.0.1:6061"
+#   webhook_secret: ""               # set via GITLAB_ENHANCED_REWARDS_WEBHOOK_SECRET
+#   uphold_client_id: ""             # set via GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_ID
+#   uphold_client_secret: ""         # set via GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_SECRET
+#   db_path: ""                      # defaults to /var/lib/gitlab-enhanced/rewards.db
+#   bandwidth_addr: "127.0.0.1:6062" # enables artifact auto-registration on pipeline success
 
 # Uncomment to enable the bandwidth proxy (compression + LFS dedup + artifact policies).
 # Run: gitlab-enhanced bandwidth serve
@@ -39,7 +55,9 @@ environment:
 #   enabled: true
 #   listen_addr: "127.0.0.1:6062"
 #   upstream_gitlab: "http://gitlab.local"   # defaults to http://<gitlab.domain>
-#   compression_level: 6
+#   compression_level: 6                     # override via GITLAB_ENHANCED_BANDWIDTH_COMPRESSION_LEVEL
 #   lfs_dedup_enabled: true
-#   artifact_max_size_mb: 500
-#   artifact_retention_days: 30
+#   artifact_max_size_mb: 500                # override via GITLAB_ENHANCED_BANDWIDTH_ARTIFACT_MAX_SIZE_MB
+#   artifact_retention_days: 30              # override via GITLAB_ENHANCED_BANDWIDTH_ARTIFACT_RETENTION_DAYS
+#   cache_max_size_gb: 50                    # override via GITLAB_ENHANCED_BANDWIDTH_CACHE_MAX_SIZE_GB
+#   db_path: ""                              # defaults to /var/lib/gitlab-enhanced/bandwidth.db
