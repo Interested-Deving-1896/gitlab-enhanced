@@ -129,7 +129,7 @@ image:rebuild-ci-base:
   variables:
     GO_VERSION: "1.25.0"
     RUNNER_VERSION: "17.11.0"
-    GOTESTSUM_VERSION: "1.12.0"
+    GOTESTSUM_VERSION: "1.12.1"
   script:
     - bash runtime/incus/images/build-ci-base.sh
     - incus image info gitlab-enhanced/ci-base:latest
@@ -184,7 +184,7 @@ go:test:
   before_script:
     # gotestsum is pre-installed in gitlab-enhanced/ci-base:latest (Incus executor).
     # On shared runners (Docker executor) it is not in the image, so install it.
-    - command -v gotestsum || go install gotest.tools/gotestsum@v1.12.0
+    - command -v gotestsum || go install gotest.tools/gotestsum@v1.12.1
   script:
     - gotestsum --junitfile report.xml --format testname -- -count=1 -coverprofile=coverage.out ./...
     - go tool cover -func=coverage.out | tail -1
