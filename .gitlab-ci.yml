@@ -30,8 +30,8 @@ stages:
 .go-base:
   # image: used by shared runners (Docker executor).
   # The Incus executor ignores image: and uses INCUS_IMAGE instead.
-  # Both point to equivalent environments: Go 1.24 + gotestsum + shellcheck + yamllint.
-  image: golang:1.24-bookworm
+  # Both point to equivalent environments: Go 1.25 + gotestsum + shellcheck + yamllint.
+  image: golang:1.25-bookworm
   # tags: intentionally absent — jobs run on shared runners until an Incus runner
   # is registered. To migrate, uncomment the tags block and register a runner with
   # tags [incus, self-hosted]. See runtime/incus/runner/README.md.
@@ -42,9 +42,9 @@ stages:
   variables:
     # Incus executor: launch the pre-baked CI base image.
     # Built by: bash runtime/incus/images/build-ci-base.sh
-    # Contains: Go 1.24, gitlab-runner-helper, gotestsum, shellcheck, yamllint
+    # Contains: Go 1.25, gitlab-runner-helper, gotestsum, shellcheck, yamllint
     INCUS_IMAGE: "gitlab-enhanced/ci-base:latest"
-    # /go is the GOPATH in golang:1.24-bookworm (shared runners).
+    # /go is the GOPATH in golang:1.25-bookworm (shared runners).
     # The Incus CI base image also sets GOPATH=/go for consistency.
     GOPATH: /go
     GOFLAGS: "-mod=readonly"
@@ -127,7 +127,7 @@ image:rebuild-ci-base:
       when: always
     - when: never
   variables:
-    GO_VERSION: "1.24.2"
+    GO_VERSION: "1.25.0"
     RUNNER_VERSION: "17.11.0"
     GOTESTSUM_VERSION: "1.12.0"
   script:
@@ -156,7 +156,7 @@ image:rebuild-workspace:
       when: always
     - when: never
   variables:
-    GO_VERSION: "1.24.2"
+    GO_VERSION: "1.25.0"
     NODE_VERSION: "20"
     OPENVSCODE_VERSION: "1.89.1"
   script:
