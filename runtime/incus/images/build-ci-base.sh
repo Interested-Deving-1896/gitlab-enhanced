@@ -15,7 +15,7 @@
 #   bash runtime/incus/images/build-ci-base.sh
 #
 # Override versions:
-#   GO_VERSION=1.24.2 RUNNER_VERSION=17.11.0 bash runtime/incus/images/build-ci-base.sh
+#   GO_VERSION=1.25.0 RUNNER_VERSION=17.11.0 bash runtime/incus/images/build-ci-base.sh
 #
 # Export to another host:
 #   incus image export gitlab-enhanced/ci-base:latest ci-base.tar.gz
@@ -25,9 +25,9 @@
 set -euo pipefail
 
 # ── Versions ──────────────────────────────────────────────────────────────────
-GO_VERSION="${GO_VERSION:-1.24.2}"
+GO_VERSION="${GO_VERSION:-1.25.0}"
 RUNNER_VERSION="${RUNNER_VERSION:-17.11.0}"
-GOTESTSUM_VERSION="${GOTESTSUM_VERSION:-1.12.0}"
+GOTESTSUM_VERSION="${GOTESTSUM_VERSION:-1.12.1}"
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BUILD_CONTAINER="ci-base-build-$$"
