@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	incus "github.com/lxc/incus/v6/client"
@@ -29,7 +30,10 @@ type IncusBuilder struct {
 	socket    string
 	cachePool string
 	vmName    string
-	conn      incus.InstanceServer
+
+	connOnce sync.Once
+	conn     incus.InstanceServer
+	connErr  error
 }
 
 func NewIncusBuilder(socket, cachePool string) *IncusBuilder {
@@ -59,15 +63,15 @@ func (b *IncusBuilder) Available(ctx context.Context) bool {
 }
 
 func (b *IncusBuilder) connect() (incus.InstanceServer, error) {
-	if b.conn != nil {
-		return b.conn, nil
-	}
-	conn, err := incus.ConnectIncusUnix(b.socket, nil)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to Incus at %s: %w", b.socket, err)
-	}
-	b.conn = conn
-	return conn, nil
+	b.connOnce.Do(func() {
+		conn, err := incus.ConnectIncusUnix(b.socket, nil)
+		if err != nil {
+			b.connErr = fmt.Errorf("connecting to Incus at %s: %w", b.socket, err)
+			return
+		}
+		b.conn = conn
+	})
+	return b.conn, b.connErr
 }
 
 func (b *IncusBuilder) Build(ctx context.Context, req BuildRequest, logs io.Writer) (*BuildResult, error) {

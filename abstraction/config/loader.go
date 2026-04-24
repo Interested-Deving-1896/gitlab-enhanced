@@ -181,6 +181,16 @@ type RewardsConfig struct {
 	DBPath string `yaml:"db_path"`
 	// BandwidthAddr is the address of the bandwidth service for artifact registration.
 	BandwidthAddr string `yaml:"bandwidth_addr"`
+
+	// Non-custodial ERC-20 payout configuration.
+	// Used when uphold_client_id is empty.
+	// EthRPCURL is the Ethereum JSON-RPC endpoint (Infura, Alchemy, local geth).
+	EthRPCURL string `yaml:"eth_rpc_url"`
+	// EthPrivateKey is the hex-encoded secp256k1 private key of the publisher wallet.
+	// Always set via GITLAB_ENHANCED_REWARDS_ETH_PRIVATE_KEY — never commit to YAML.
+	EthPrivateKey string `yaml:"eth_private_key"`
+	// EthChainID is the Ethereum chain ID (1=mainnet, 11155111=Sepolia). Defaults to 1.
+	EthChainID int64 `yaml:"eth_chain_id"`
 }
 
 // BandwidthConfig controls the server-side bandwidth management service.
@@ -281,6 +291,8 @@ func applyEnvOverrides(cfg *Config) {
 		"GITLAB_ENHANCED_REWARDS_WEBHOOK_SECRET":          &cfg.Rewards.WebhookSecret,
 		"GITLAB_ENHANCED_REWARDS_DB_PATH":                 &cfg.Rewards.DBPath,
 		"GITLAB_ENHANCED_REWARDS_BANDWIDTH_ADDR":          &cfg.Rewards.BandwidthAddr,
+		"GITLAB_ENHANCED_REWARDS_ETH_RPC_URL":             &cfg.Rewards.EthRPCURL,
+		"GITLAB_ENHANCED_REWARDS_ETH_PRIVATE_KEY":         &cfg.Rewards.EthPrivateKey,
 		// Bandwidth
 		"GITLAB_ENHANCED_BANDWIDTH_LISTEN_ADDR":           &cfg.Bandwidth.ListenAddr,
 		"GITLAB_ENHANCED_BANDWIDTH_UPSTREAM_GITLAB":       &cfg.Bandwidth.UpstreamGitLab,
@@ -328,6 +340,14 @@ func applyEnvOverrides(cfg *Config) {
 			if _, err := fmt.Sscanf(v, "%d", &n); err == nil {
 				*pair.field = n
 			}
+		}
+	}
+
+	// int64 overrides
+	if v := os.Getenv("GITLAB_ENHANCED_REWARDS_ETH_CHAIN_ID"); v != "" {
+		var n int64
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil {
+			cfg.Rewards.EthChainID = n
 		}
 	}
 

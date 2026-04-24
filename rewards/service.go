@@ -57,6 +57,16 @@ type Config struct {
 	// via POST /artifacts/register on the bandwidth service.
 	// Example: "127.0.0.1:6062"
 	BandwidthAddr string
+
+	// Non-custodial ERC-20 payout fields.
+	// Used when UpholdClientID is empty. Requires a funded Ethereum wallet.
+	// EthRPCURL is the Ethereum JSON-RPC endpoint (Infura, Alchemy, local node).
+	EthRPCURL string
+	// EthPrivateKey is the hex-encoded secp256k1 private key of the publisher wallet.
+	// Set via GITLAB_ENHANCED_REWARDS_ETH_PRIVATE_KEY — never commit to config files.
+	EthPrivateKey string
+	// EthChainID is the Ethereum chain ID (1=mainnet, 11155111=Sepolia). Defaults to 1.
+	EthChainID int64
 }
 
 // ContributionEvent describes a GitLab event that triggers a BAT reward.
@@ -620,10 +630,36 @@ func (s *Service) registerPipelineArtifacts(projectID, pipelineID int, payload m
 // submitPayout sends BAT to the contributor's wallet via the Uphold REST API.
 // Returns the Uphold transaction ID on success.
 func (s *Service) submitPayout(reward PendingReward, wallet WalletRegistration) (string, error) {
-	if s.cfg.UpholdClientID == "" || s.cfg.UpholdClientSecret == "" {
-		return "", fmt.Errorf("uphold credentials not configured (set rewards.uphold_client_id and rewards.uphold_client_secret)")
+	// Custodial path: Uphold REST API.
+	if s.cfg.UpholdClientID != "" && s.cfg.UpholdClientSecret != "" {
+		return s.submitUpholdPayout(reward, wallet)
 	}
 
+	// Non-custodial path: direct ERC-20 transfer via Ethereum JSON-RPC.
+	if s.cfg.EthRPCURL != "" && s.cfg.EthPrivateKey != "" {
+		toAddr := wallet.WalletAddress
+		if toAddr == "" {
+			return "", fmt.Errorf("contributor %s has no wallet address registered for ERC-20 payout",
+				wallet.Username)
+		}
+		txHash, err := submitERC20Payout(EthConfig{
+			RPCURL:        s.cfg.EthRPCURL,
+			PrivateKeyHex: s.cfg.EthPrivateKey,
+			WalletAddress: s.cfg.WalletAddress,
+			ChainID:       s.cfg.EthChainID,
+		}, toAddr, reward.AmountBAT)
+		if err != nil {
+			return "", fmt.Errorf("ERC-20 payout: %w", err)
+		}
+		return txHash, nil
+	}
+
+	return "", fmt.Errorf("no payout method configured: set either " +
+		"rewards.uphold_client_id + rewards.uphold_client_secret (custodial) or " +
+		"rewards.eth_rpc_url + rewards.eth_private_key (non-custodial ERC-20)")
+}
+
+func (s *Service) submitUpholdPayout(reward PendingReward, wallet WalletRegistration) (string, error) {
 	// Step 1: obtain a short-lived OAuth2 bearer token.
 	token, err := s.upholdToken()
 	if err != nil {

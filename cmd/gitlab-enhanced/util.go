@@ -36,11 +36,14 @@ func repoRoot() string {
 	return cwd
 }
 
-// loadConfig loads configuration from the given root directory.
+// loadConfig loads and validates configuration from the given root directory.
 func loadConfig(root string) (*config.Config, error) {
 	cfg, err := config.Load(root)
 	if err != nil {
 		return nil, fmt.Errorf("loading config from %s: %w", root, err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }

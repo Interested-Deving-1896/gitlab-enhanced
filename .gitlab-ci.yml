@@ -24,6 +24,7 @@ stages:
   - lint
   - build
   - test
+  - package
   - image
 
 # ── Shared config ─────────────────────────────────────────────────────────────
@@ -120,12 +121,72 @@ go:build:
   stage: build
   script:
     - mkdir -p bin
-    - go build -v -o bin/gitlab-enhanced ./cmd/gitlab-enhanced/
+    - |
+      VERSION="${CI_COMMIT_TAG:-${CI_COMMIT_SHORT_SHA:-dev}}"
+      COMMIT="${CI_COMMIT_SHORT_SHA:-unknown}"
+      DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      MODULE="gitlab.com/openos-project/git-management_deving/gitlab-enhanced"
+      LDFLAGS="-s -w
+        -X ${MODULE}/version.Version=${VERSION}
+        -X ${MODULE}/version.Commit=${COMMIT}
+        -X ${MODULE}/version.Date=${DATE}"
+      go build -v -ldflags "${LDFLAGS}" -o bin/gitlab-enhanced ./cmd/gitlab-enhanced/
     - go build -v ./...
   artifacts:
     paths:
       - bin/gitlab-enhanced
     expire_in: 1 week
+
+# ── Package stage ─────────────────────────────────────────────────────────────
+# Builds .deb and .rpm packages using nfpm.
+# Runs automatically on version tags (v*) and can be triggered manually.
+# The binary artifact from go:build is reused — no recompilation needed.
+
+package:nfpm:
+  stage: package
+  image: golang:1.25-bookworm
+  needs:
+    - job: go:build
+      artifacts: true
+  rules:
+    # Always run on version tags
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/'
+      when: always
+    # Manual trigger on any branch (for testing packaging)
+    - if: '$BUILD_PACKAGES == "1"'
+      when: always
+    - when: never
+  variables:
+    NFPM_VERSION: "2.41.1"
+  before_script:
+    - |
+      # Install nfpm
+      curl -sSfL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz" \
+        | tar -xz -C /usr/local/bin nfpm
+      nfpm --version
+  script:
+    - mkdir -p dist
+    - |
+      # Derive version: prefer tag, fall back to short SHA
+      PKG_VERSION="${CI_COMMIT_TAG#v}"
+      PKG_VERSION="${PKG_VERSION:-${CI_COMMIT_SHORT_SHA:-0.0.0-dev}}"
+      echo "Packaging version: ${PKG_VERSION}"
+      # nfpm reads VERSION from the environment
+      VERSION="${PKG_VERSION}" nfpm package \
+        --config packaging/config/nfpm.yaml \
+        --packager deb \
+        --target dist/
+      VERSION="${PKG_VERSION}" nfpm package \
+        --config packaging/config/nfpm.yaml \
+        --packager rpm \
+        --target dist/
+      ls -lh dist/
+  artifacts:
+    name: "gitlab-enhanced-packages-${CI_COMMIT_REF_SLUG}"
+    paths:
+      - dist/*.deb
+      - dist/*.rpm
+    expire_in: 4 weeks
 
 # ── Image stage ───────────────────────────────────────────────────────────────
 # Rebuilds the pre-baked CI base image on the self-hosted Incus runner.
