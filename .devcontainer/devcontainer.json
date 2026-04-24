@@ -94,7 +94,7 @@
     "8443": { "label": "GitLab HTTPS", "onAutoForward": "notify" }
   },
 
-  "postCreateCommand": "go mod download 2>/dev/null || true",
+  "postCreateCommand": "go mod download 2>/dev/null || true && pip install git-filter-repo",
 
   "remoteUser": "vscode"
 }

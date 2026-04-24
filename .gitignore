@@ -67,3 +67,4 @@ logs/
 # Temporary
 tmp/
 temp/
+.npmrc
