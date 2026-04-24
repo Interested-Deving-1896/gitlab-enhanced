@@ -1,0 +1,44 @@
+sync:
+  images:
+    workspace-base-images:
+    - base
+    - c
+    - clojure
+    - elixir
+    - full
+    - full-vnc
+    - go
+    - nix
+    - node
+    - node-lts
+    - node-18
+    - node-20
+    - node-22
+    - node-23
+    - node-24
+    - node-25
+    - python
+    - python-3.10
+    - python-3.11
+    - python-3.12
+    - python-3.13
+    - ruby-3
+    - ruby-3.1
+    - ruby-3.2
+    - ruby-3.3
+    - rust
+    - dotnet
+    - dotnet-6
+    - dotnet-8
+    - postgres
+    - mysql
+    - mongodb
+    - java-11
+    - java-17
+    - java-21
+    - java-23
+    - java-25
+    - yugabytedb
+    - yugabytedb-preview
+    - gitpod-dev
+    - bun
