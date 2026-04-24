@@ -77,6 +77,7 @@ func newBandwidthServeCmd(cfgRoot *string) *cobra.Command {
 				ArtifactRetentionDays: cfg.Bandwidth.ArtifactRetentionDays,
 				CacheMaxSizeGB:        cfg.Bandwidth.CacheMaxSizeGB,
 				UpstreamGitLab:        bandwidthUpstream(cfg),
+				DBPath:                cfg.Bandwidth.DBPath,
 			})
 			if err != nil {
 				return err

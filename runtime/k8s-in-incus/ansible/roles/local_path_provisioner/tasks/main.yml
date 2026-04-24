@@ -1,0 +1,55 @@
+---
+# Installs Rancher local-path-provisioner and optionally marks it as the
+# default StorageClass. Idempotent — safe to run on an existing cluster.
+
+- name: Check if local-path-provisioner is already installed
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} --
+      kubectl get deployment local-path-provisioner
+        -n local-path-storage --no-headers
+  register: lpp_check
+  changed_when: false
+  failed_when: false
+
+- name: Apply local-path-provisioner manifest
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} --
+      kubectl apply -f {{ local_path_provisioner_manifest }}
+  when: lpp_check.rc != 0
+  changed_when: true
+
+- name: Wait for local-path-provisioner deployment to be ready
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} --
+      kubectl rollout status deployment/local-path-provisioner
+        -n local-path-storage --timeout=120s
+  when: lpp_check.rc != 0
+  changed_when: false
+
+- name: Patch host path in ConfigMap
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} --
+      kubectl patch configmap local-path-config
+        -n local-path-storage
+        --type merge
+        -p '{"data":{"config.json":"{\"nodePathMap\":[{\"node\":\"DEFAULT_PATH_FOR_NON_LISTED_NODES\",\"paths\":[\"{{ local_path_provisioner_host_path }}\"]}]}"}}'
+  changed_when: true
+
+- name: Mark local-path as the default StorageClass
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} --
+      kubectl patch storageclass local-path
+        -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+  when: local_path_provisioner_set_default | bool
+  changed_when: true
+
+- name: Verify StorageClass exists
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} --
+      kubectl get storageclass local-path
+  changed_when: false
+  register: sc_check
+
+- name: Show StorageClass
+  ansible.builtin.debug:
+    msg: "{{ sc_check.stdout_lines }}"

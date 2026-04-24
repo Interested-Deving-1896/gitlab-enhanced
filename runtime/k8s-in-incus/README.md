@@ -20,6 +20,7 @@ ansible-galaxy collection install ansible.utils
 | Playbook | What it does |
 |---|---|
 | `k8s-cluster.yml` | Provisions control plane + N worker VMs, initialises K8s |
+| `k8s-addons.yml` | Installs local-path-provisioner (StorageClass) + ingress-nginx |
 | `k8s-gitpod.yml` | Installs Gitpod Classic on the cluster |
 | `k8s-gitlab-runner.yml` | Installs GitLab Runner (Kubernetes executor) |
 | `k8s-cleanup.yml` | Destroys all VMs and network |
@@ -32,20 +33,25 @@ cd runtime/k8s-in-incus/ansible
 # 1. Provision a 1 control-plane + 1 worker cluster (default)
 ansible-playbook playbooks/k8s-cluster.yml
 
-# 2. Use the cluster
+# 2. Install cluster add-ons (StorageClass + ingress)
+ansible-playbook playbooks/k8s-addons.yml
+
+# 3. Use the cluster
 export KUBECONFIG=kubeconfig.yaml
 kubectl get nodes
+kubectl get storageclass          # local-path (default)
+kubectl get pods -n ingress-nginx # ingress-nginx-controller
 
-# 3. Install Gitpod Classic (optional)
+# 4. Install Gitpod Classic (optional — requires add-ons)
 ansible-playbook playbooks/k8s-gitpod.yml \
   -e gitpod_domain=gitpod.gitlab.local
 
-# 4. Install GitLab Runner (optional)
+# 5. Install GitLab Runner (optional)
 ansible-playbook playbooks/k8s-gitlab-runner.yml \
   -e gitlab_url=https://gitlab.local \
   -e gitlab_runner_token=glrt-xxxxxxxxxxxx
 
-# 5. Tear down
+# 6. Tear down
 ansible-playbook playbooks/k8s-cleanup.yml
 ```
 
@@ -69,6 +75,8 @@ ansible-playbook playbooks/k8s-cluster.yml \
 | `kubernetes_node` | Installs kubeadm/kubelet/kubectl inside a VM |
 | `kubeadm_init` | Initialises the control plane, fetches kubeconfig |
 | `kubeadm_join` | Joins a worker node to the cluster |
+| `local_path_provisioner` | Installs Rancher local-path-provisioner as default StorageClass |
+| `nginx_ingress` | Installs ingress-nginx with fixed NodePorts (no cloud LB required) |
 
 ## Architecture
 
@@ -94,6 +102,6 @@ Bare metal host
 | Hard-coded Incus 6.0.0 version check | Removed — any 6.x works |
 | Hard-coded yq 4.2.0 version check | Removed — any 4.x works |
 | Single control plane only | Multi-worker via `k8s_worker_count` |
-| No persistent storage | Add-on: local-path-provisioner (TODO) |
-| No ingress | Add-on: nginx-ingress (TODO) |
+| No persistent storage | Add-on: local-path-provisioner (`k8s-addons.yml`) |
+| No ingress | Add-on: nginx-ingress (`k8s-addons.yml`) |
 | Shell scripts | Ansible roles — integrates with GET |

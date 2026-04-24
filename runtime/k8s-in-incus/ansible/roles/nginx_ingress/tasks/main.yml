@@ -1,0 +1,60 @@
+---
+# Installs ingress-nginx using the bare-metal NodePort manifest.
+# Patches HTTP/HTTPS NodePorts to fixed values so GitLab and Gitpod
+# can be reached at predictable ports without a cloud LoadBalancer.
+# Idempotent — safe to run on an existing cluster.
+
+- name: Check if ingress-nginx is already installed
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} --
+      kubectl get deployment ingress-nginx-controller
+        -n {{ nginx_ingress_namespace }} --no-headers
+  register: nginx_check
+  changed_when: false
+  failed_when: false
+
+- name: Apply ingress-nginx bare-metal manifest
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} --
+      kubectl apply -f {{ nginx_ingress_manifest }}
+  when: nginx_check.rc != 0
+  changed_when: true
+
+- name: Wait for ingress-nginx controller to be ready
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} --
+      kubectl rollout status deployment/ingress-nginx-controller
+        -n {{ nginx_ingress_namespace }} --timeout=180s
+  changed_when: false
+
+- name: Patch NodePort for HTTP (port 80 → {{ nginx_ingress_http_nodeport }})
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} --
+      kubectl patch service ingress-nginx-controller
+        -n {{ nginx_ingress_namespace }}
+        --type json
+        -p '[{"op":"replace","path":"/spec/ports/0/nodePort","value":{{ nginx_ingress_http_nodeport }}}]'
+  when: nginx_ingress_http_nodeport | int > 0
+  changed_when: true
+
+- name: Patch NodePort for HTTPS (port 443 → {{ nginx_ingress_https_nodeport }})
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} --
+      kubectl patch service ingress-nginx-controller
+        -n {{ nginx_ingress_namespace }}
+        --type json
+        -p '[{"op":"replace","path":"/spec/ports/1/nodePort","value":{{ nginx_ingress_https_nodeport }}}]'
+  when: nginx_ingress_https_nodeport | int > 0
+  changed_when: true
+
+- name: Verify ingress-nginx controller pod is running
+  ansible.builtin.command: >
+    incus exec {{ incus_vm_name }} --
+      kubectl get pods -n {{ nginx_ingress_namespace }}
+        -l app.kubernetes.io/component=controller --no-headers
+  changed_when: false
+  register: nginx_pods
+
+- name: Show ingress-nginx pods
+  ansible.builtin.debug:
+    msg: "{{ nginx_pods.stdout_lines }}"

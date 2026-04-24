@@ -32,8 +32,10 @@ type Config struct {
 }
 
 type GitLabConfig struct {
-	Domain  string `yaml:"domain"`
-	Edition string `yaml:"edition"` // ce | ee
+	Domain       string `yaml:"domain"`
+	Edition      string `yaml:"edition"` // ce | ee
+	AdminEmail   string `yaml:"admin_email"`
+	AdminPassword string `yaml:"admin_password"`
 }
 
 type StorageConfig struct {
@@ -86,26 +88,29 @@ type StorageCredentials struct {
 }
 
 type BuildConfig struct {
-	Backend   string `yaml:"backend"` // incus | depot
-	Socket    string `yaml:"socket"`
-	CachePool string `yaml:"cache_pool"`
-	ProjectID string `yaml:"project_id"`
-	Token     string `yaml:"token"`
+	Backend         string `yaml:"backend"` // incus | depot
+	Socket          string `yaml:"socket"`
+	CachePool       string `yaml:"cache_pool"`
+	ProjectID       string `yaml:"project_id"`
+	Token           string `yaml:"token"`
+	BuildKitVersion string `yaml:"buildkit_version"`
 }
 
 type RunnerConfig struct {
-	Backend    string `yaml:"backend"` // incus | blacksmith
-	VMProfile  string `yaml:"vm_profile"`
-	Concurrent int    `yaml:"concurrent"`
-	Org        string `yaml:"org"`
-	Token      string `yaml:"token"`
+	Backend          string `yaml:"backend"` // incus | blacksmith
+	VMProfile        string `yaml:"vm_profile"`
+	Concurrent       int    `yaml:"concurrent"`
+	Org              string `yaml:"org"`
+	Token            string `yaml:"token"`
+	BlacksmithAPIURL string `yaml:"blacksmith_api_url"`
 }
 
 type LFSConfig struct {
-	Server     string `yaml:"server"` // rudolfs | giftless | lfs-test-server
-	Backend    string `yaml:"backend"`
-	Path       string `yaml:"path"`
-	Encryption bool   `yaml:"encryption"`
+	Server        string `yaml:"server"` // rudolfs | giftless | lfs-test-server
+	Backend       string `yaml:"backend"`
+	Path          string `yaml:"path"`
+	Encryption    bool   `yaml:"encryption"`
+	EncryptionKey string `yaml:"encryption_key"` // set via GITLAB_ENHANCED_LFS_ENCRYPTION_KEY
 }
 
 type IPFSConfig struct {
@@ -168,6 +173,14 @@ type RewardsConfig struct {
 	MinPayoutBAT float64 `yaml:"min_payout_bat"`
 	// ListenAddr is the address the rewards HTTP service binds to.
 	ListenAddr string `yaml:"listen_addr"`
+	// WebhookSecret is the token configured in GitLab Admin > System Hooks.
+	// Set via GITLAB_ENHANCED_REWARDS_WEBHOOK_SECRET.
+	WebhookSecret string `yaml:"webhook_secret"`
+	// DBPath is the SQLite database file path for rewards persistence.
+	// Defaults to /var/lib/gitlab-enhanced/rewards.db
+	DBPath string `yaml:"db_path"`
+	// BandwidthAddr is the address of the bandwidth service for artifact registration.
+	BandwidthAddr string `yaml:"bandwidth_addr"`
 }
 
 // BandwidthConfig controls the server-side bandwidth management service.
@@ -189,6 +202,9 @@ type BandwidthConfig struct {
 	ArtifactRetentionDays int `yaml:"artifact_retention_days"`
 	// CacheMaxSizeGB is the maximum total size of the CI cache in GB (0=unlimited).
 	CacheMaxSizeGB int `yaml:"cache_max_size_gb"`
+	// DBPath is the SQLite database file path for artifact persistence.
+	// Defaults to /var/lib/gitlab-enhanced/bandwidth.db
+	DBPath string `yaml:"db_path"`
 }
 
 // Load reads and merges configuration from the standard locations.
@@ -236,35 +252,45 @@ func mergeFile(cfg *Config, path string) error {
 // applyEnvOverrides maps GITLAB_ENHANCED_* environment variables onto cfg.
 // Format: GITLAB_ENHANCED_STORAGE_BACKEND → cfg.Storage.Backend
 func applyEnvOverrides(cfg *Config) {
-	overrides := map[string]*string{
+	// String overrides
+	for env, field := range map[string]*string{
 		// Core
-		"GITLAB_ENHANCED_GITLAB_DOMAIN":                &cfg.GitLab.Domain,
-		"GITLAB_ENHANCED_STORAGE_BACKEND":              &cfg.Storage.Backend,
-		"GITLAB_ENHANCED_STORAGE_PATH":                 &cfg.Storage.Path,
-		"GITLAB_ENHANCED_BUILD_BACKEND":                &cfg.Build.Backend,
-		"GITLAB_ENHANCED_RUNNER_BACKEND":               &cfg.Runner.Backend,
-		"GITLAB_ENHANCED_LFS_SERVER":                   &cfg.LFS.Server,
-		"GITLAB_ENHANCED_LFS_BACKEND":                  &cfg.LFS.Backend,
-		"GITLAB_ENHANCED_ENVIRONMENT_BACKEND":          &cfg.Environment.Backend,
-		"GITLAB_ENHANCED_CLOUD_PROVIDER":               &cfg.Cloud.Provider,
+		"GITLAB_ENHANCED_GITLAB_DOMAIN":                  &cfg.GitLab.Domain,
+		"GITLAB_ENHANCED_GITLAB_ADMIN_EMAIL":              &cfg.GitLab.AdminEmail,
+		"GITLAB_ENHANCED_GITLAB_ADMIN_PASSWORD":           &cfg.GitLab.AdminPassword,
+		"GITLAB_ENHANCED_STORAGE_BACKEND":                 &cfg.Storage.Backend,
+		"GITLAB_ENHANCED_STORAGE_PATH":                    &cfg.Storage.Path,
+		"GITLAB_ENHANCED_BUILD_BACKEND":                   &cfg.Build.Backend,
+		"GITLAB_ENHANCED_BUILD_BUILDKIT_VERSION":          &cfg.Build.BuildKitVersion,
+		"GITLAB_ENHANCED_RUNNER_BACKEND":                  &cfg.Runner.Backend,
+		"GITLAB_ENHANCED_RUNNER_BLACKSMITH_API_URL":       &cfg.Runner.BlacksmithAPIURL,
+		"GITLAB_ENHANCED_LFS_SERVER":                      &cfg.LFS.Server,
+		"GITLAB_ENHANCED_LFS_BACKEND":                     &cfg.LFS.Backend,
+		"GITLAB_ENHANCED_LFS_ENCRYPTION_KEY":              &cfg.LFS.EncryptionKey,
+		"GITLAB_ENHANCED_ENVIRONMENT_BACKEND":             &cfg.Environment.Backend,
+		"GITLAB_ENHANCED_CLOUD_PROVIDER":                  &cfg.Cloud.Provider,
 		// Adblock
-		"GITLAB_ENHANCED_ADBLOCK_LISTEN_ADDR":          &cfg.Adblock.ListenAddr,
-		"GITLAB_ENHANCED_ADBLOCK_LISTS_DIR":            &cfg.Adblock.ListsDir,
+		"GITLAB_ENHANCED_ADBLOCK_LISTEN_ADDR":             &cfg.Adblock.ListenAddr,
+		"GITLAB_ENHANCED_ADBLOCK_LISTS_DIR":               &cfg.Adblock.ListsDir,
 		// Rewards
-		"GITLAB_ENHANCED_REWARDS_PUBLISHER_ID":         &cfg.Rewards.PublisherID,
-		"GITLAB_ENHANCED_REWARDS_WALLET_ADDRESS":       &cfg.Rewards.WalletAddress,
-		"GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_ID":     &cfg.Rewards.UpholdClientID,
-		"GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_SECRET": &cfg.Rewards.UpholdClientSecret,
-		"GITLAB_ENHANCED_REWARDS_LISTEN_ADDR":          &cfg.Rewards.ListenAddr,
+		"GITLAB_ENHANCED_REWARDS_PUBLISHER_ID":            &cfg.Rewards.PublisherID,
+		"GITLAB_ENHANCED_REWARDS_WALLET_ADDRESS":          &cfg.Rewards.WalletAddress,
+		"GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_ID":        &cfg.Rewards.UpholdClientID,
+		"GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_SECRET":    &cfg.Rewards.UpholdClientSecret,
+		"GITLAB_ENHANCED_REWARDS_LISTEN_ADDR":             &cfg.Rewards.ListenAddr,
+		"GITLAB_ENHANCED_REWARDS_WEBHOOK_SECRET":          &cfg.Rewards.WebhookSecret,
+		"GITLAB_ENHANCED_REWARDS_DB_PATH":                 &cfg.Rewards.DBPath,
+		"GITLAB_ENHANCED_REWARDS_BANDWIDTH_ADDR":          &cfg.Rewards.BandwidthAddr,
 		// Bandwidth
-		"GITLAB_ENHANCED_BANDWIDTH_LISTEN_ADDR":        &cfg.Bandwidth.ListenAddr,
-		"GITLAB_ENHANCED_BANDWIDTH_UPSTREAM_GITLAB":    &cfg.Bandwidth.UpstreamGitLab,
-	}
-	for env, field := range overrides {
+		"GITLAB_ENHANCED_BANDWIDTH_LISTEN_ADDR":           &cfg.Bandwidth.ListenAddr,
+		"GITLAB_ENHANCED_BANDWIDTH_UPSTREAM_GITLAB":       &cfg.Bandwidth.UpstreamGitLab,
+		"GITLAB_ENHANCED_BANDWIDTH_DB_PATH":               &cfg.Bandwidth.DBPath,
+	} {
 		if v := os.Getenv(env); v != "" {
 			*field = v
 		}
 	}
+
 	// Boolean overrides
 	for _, pair := range []struct {
 		env   string
@@ -273,11 +299,50 @@ func applyEnvOverrides(cfg *Config) {
 		{"GITLAB_ENHANCED_CLOUD_ENABLED", &cfg.Cloud.Enabled},
 		{"GITLAB_ENHANCED_IPFS_ENABLED", &cfg.IPFS.Enabled},
 		{"GITLAB_ENHANCED_ADBLOCK_ENABLED", &cfg.Adblock.Enabled},
+		{"GITLAB_ENHANCED_ADBLOCK_FILTER_CI", &cfg.Adblock.FilterCI},
+		{"GITLAB_ENHANCED_ADBLOCK_FILTER_WORKSPACES", &cfg.Adblock.FilterWorkspaces},
 		{"GITLAB_ENHANCED_REWARDS_ENABLED", &cfg.Rewards.Enabled},
 		{"GITLAB_ENHANCED_BANDWIDTH_ENABLED", &cfg.Bandwidth.Enabled},
+		{"GITLAB_ENHANCED_BANDWIDTH_LFS_DEDUP_ENABLED", &cfg.Bandwidth.LFSDedupEnabled},
+		{"GITLAB_ENHANCED_LFS_ENCRYPTION", &cfg.LFS.Encryption},
 	} {
 		if v := strings.ToLower(os.Getenv(pair.env)); v == "true" || v == "1" {
 			*pair.field = true
+		}
+	}
+
+	// Integer overrides
+	for _, pair := range []struct {
+		env   string
+		field *int
+	}{
+		{"GITLAB_ENHANCED_RUNNER_CONCURRENT", &cfg.Runner.Concurrent},
+		{"GITLAB_ENHANCED_ENVIRONMENT_IDE_PORT", &cfg.Environment.IDEPort},
+		{"GITLAB_ENHANCED_BANDWIDTH_COMPRESSION_LEVEL", &cfg.Bandwidth.CompressionLevel},
+		{"GITLAB_ENHANCED_BANDWIDTH_ARTIFACT_MAX_SIZE_MB", &cfg.Bandwidth.ArtifactMaxSizeMB},
+		{"GITLAB_ENHANCED_BANDWIDTH_ARTIFACT_RETENTION_DAYS", &cfg.Bandwidth.ArtifactRetentionDays},
+		{"GITLAB_ENHANCED_BANDWIDTH_CACHE_MAX_SIZE_GB", &cfg.Bandwidth.CacheMaxSizeGB},
+	} {
+		if v := os.Getenv(pair.env); v != "" {
+			var n int
+			if _, err := fmt.Sscanf(v, "%d", &n); err == nil {
+				*pair.field = n
+			}
+		}
+	}
+
+	// Float overrides
+	for _, pair := range []struct {
+		env   string
+		field *float64
+	}{
+		{"GITLAB_ENHANCED_REWARDS_MIN_PAYOUT_BAT", &cfg.Rewards.MinPayoutBAT},
+	} {
+		if v := os.Getenv(pair.env); v != "" {
+			var f float64
+			if _, err := fmt.Sscanf(v, "%f", &f); err == nil {
+				*pair.field = f
+			}
 		}
 	}
 }

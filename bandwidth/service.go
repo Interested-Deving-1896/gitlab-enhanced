@@ -17,6 +17,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -30,6 +31,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/store"
 )
 
 // Config holds bandwidth service configuration. Populated from config.Bandwidth.
@@ -44,6 +47,9 @@ type Config struct {
 	CacheMaxSizeGB        int
 	// UpstreamGitLab is the GitLab instance URL to proxy to.
 	UpstreamGitLab string
+	// DBPath is the path to the SQLite database file.
+	// Defaults to /var/lib/gitlab-enhanced/bandwidth.db
+	DBPath string
 }
 
 // statsValues is a mutex-free snapshot of Stats for serialisation.
@@ -80,11 +86,11 @@ type ArtifactRecord struct {
 
 // Service is the bandwidth management HTTP service.
 type Service struct {
-	cfg       Config
-	stats     Stats
-	artifacts []ArtifactRecord
-	mu        sync.Mutex
-	server    *http.Server
+	cfg    Config
+	stats  Stats
+	mu     sync.Mutex
+	db     *sql.DB
+	server *http.Server
 }
 
 // New creates a new bandwidth Service.
@@ -101,7 +107,15 @@ func New(cfg Config) (*Service, error) {
 	if cfg.UpstreamGitLab == "" {
 		cfg.UpstreamGitLab = "http://127.0.0.1:80"
 	}
-	return &Service{cfg: cfg}, nil
+	if cfg.DBPath == "" {
+		cfg.DBPath = "/var/lib/gitlab-enhanced/bandwidth.db"
+	}
+
+	db, err := store.Open(cfg.DBPath)
+	if err != nil {
+		return nil, fmt.Errorf("bandwidth: open store: %w", err)
+	}
+	return &Service{cfg: cfg, db: db}, nil
 }
 
 // Start launches the HTTP server. Blocks until ctx is cancelled.
@@ -118,6 +132,7 @@ func (s *Service) Start(ctx context.Context) error {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/stats", s.handleStats)
 	mux.HandleFunc("/lfs/dedup", s.handleLFSDedup)
+	mux.HandleFunc("/artifacts/register", s.handleArtifactRegister)
 	mux.HandleFunc("/artifacts/policy", s.handleArtifactPolicy)
 	mux.HandleFunc("/artifacts/evict", s.handleArtifactEvict)
 	// All other paths are proxied to GitLab with compression
@@ -145,8 +160,11 @@ func (s *Service) Start(ctx context.Context) error {
 	case <-ctx.Done():
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return s.server.Shutdown(shutCtx)
+		shutErr := s.server.Shutdown(shutCtx)
+		s.db.Close()
+		return shutErr
 	case err := <-errCh:
+		s.db.Close()
 		return err
 	}
 }
@@ -369,27 +387,42 @@ func (s *Service) evictArtifacts() {
 	cutoff := time.Now().AddDate(0, 0, -s.cfg.ArtifactRetentionDays)
 	maxBytes := int64(s.cfg.ArtifactMaxSizeMB) * 1024 * 1024
 
-	var kept []ArtifactRecord
-	for _, a := range s.artifacts {
+	rows, err := s.db.Query(`SELECT path, size_bytes, created_at FROM artifacts`)
+	if err != nil {
+		log.Printf("[bandwidth] evict: query artifacts: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	var toEvict []ArtifactRecord
+	for rows.Next() {
+		var a ArtifactRecord
+		var createdAt string
+		if err := rows.Scan(&a.Path, &a.SizeBytes, &createdAt); err != nil {
+			continue
+		}
+		a.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+
 		expired := s.cfg.ArtifactRetentionDays > 0 && a.CreatedAt.Before(cutoff)
 		oversized := maxBytes > 0 && a.SizeBytes > maxBytes
-
 		if expired || oversized {
-			if err := os.Remove(a.Path); err == nil {
-				s.stats.mu.Lock()
-				s.stats.ArtifactsEvicted++
-				s.stats.mu.Unlock()
-				log.Printf("[bandwidth] evicted artifact %s (expired=%v oversized=%v)",
-					a.Path, expired, oversized)
-			}
-		} else {
-			kept = append(kept, a)
+			toEvict = append(toEvict, a)
 		}
 	}
-	s.artifacts = kept
+	rows.Close()
+
+	for _, a := range toEvict {
+		if err := os.Remove(a.Path); err == nil {
+			_, _ = s.db.Exec(`DELETE FROM artifacts WHERE path=?`, a.Path)
+			s.stats.mu.Lock()
+			s.stats.ArtifactsEvicted++
+			s.stats.mu.Unlock()
+			log.Printf("[bandwidth] evicted artifact %s", a.Path)
+		}
+	}
 }
 
-// RegisterArtifact adds an artifact to the retention tracking list.
+// RegisterArtifact adds an artifact to the retention tracking store.
 func (s *Service) RegisterArtifact(a ArtifactRecord) error {
 	maxBytes := int64(s.cfg.ArtifactMaxSizeMB) * 1024 * 1024
 	if maxBytes > 0 && a.SizeBytes > maxBytes {
@@ -397,9 +430,13 @@ func (s *Service) RegisterArtifact(a ArtifactRecord) error {
 			a.SizeBytes, s.cfg.ArtifactMaxSizeMB)
 	}
 	s.mu.Lock()
-	s.artifacts = append(s.artifacts, a)
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO artifacts (path, size_bytes, created_at, project_id, job_id)
+		VALUES (?, ?, ?, ?, ?)`,
+		a.Path, a.SizeBytes, a.CreatedAt.Format(time.RFC3339), a.ProjectID, a.JobID,
+	)
 	s.mu.Unlock()
-	return nil
+	return err
 }
 
 // --- HTTP handlers ---
@@ -447,15 +484,42 @@ func (s *Service) handleLFSDedup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleArtifactPolicy(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	tracked := len(s.artifacts)
-	s.mu.Unlock()
+	var tracked int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM artifacts`).Scan(&tracked)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"artifact_max_size_mb":    s.cfg.ArtifactMaxSizeMB,
 		"artifact_retention_days": s.cfg.ArtifactRetentionDays,
 		"cache_max_size_gb":       s.cfg.CacheMaxSizeGB,
 		"artifacts_tracked":       tracked,
 	})
+}
+
+// handleArtifactRegister accepts a single ArtifactRecord via POST and adds it
+// to the retention tracking store. Called by the rewards webhook handler when
+// a pipeline completes successfully, and can also be called directly by CI
+// scripts or the GitLab runner executor.
+func (s *Service) handleArtifactRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var a ArtifactRecord
+	if err := json.NewDecoder(r.Body).Decode(&a); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if a.Path == "" {
+		http.Error(w, "path required", http.StatusBadRequest)
+		return
+	}
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = time.Now().UTC()
+	}
+	if err := s.RegisterArtifact(a); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "path": a.Path})
 }
 
 func (s *Service) handleArtifactEvict(w http.ResponseWriter, r *http.Request) {
