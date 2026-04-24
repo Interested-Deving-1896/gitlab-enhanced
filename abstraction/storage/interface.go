@@ -4,7 +4,9 @@
 package storage
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"time"
 )
@@ -41,8 +43,11 @@ type Backend interface {
 	Name() string
 }
 
-// Chain tries each backend in order, using the first one that is available.
-// This implements the local-first fallback strategy.
+// Chain implements a multi-backend storage strategy:
+//   - Reads (Get/Stat/List) return the first hit from the first available backend.
+//   - Writes (Put/Delete) fan out to ALL available backends so every backend
+//     stays in sync. If any backend fails the error is returned, but writes to
+//     other backends are not rolled back.
 type Chain []Backend
 
 // Available returns true if any backend in the chain is available.
@@ -65,12 +70,36 @@ func (c Chain) active(ctx context.Context) Backend {
 	return nil
 }
 
+// Put writes to ALL available backends. The reader is consumed once into a
+// buffer so each backend receives the full content.
 func (c Chain) Put(ctx context.Context, key string, r io.Reader, size int64) error {
-	b := c.active(ctx)
-	if b == nil {
+	// Buffer the content so it can be replayed to each backend.
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return fmt.Errorf("chain put: read source: %w", err)
+	}
+
+	var firstErr error
+	wrote := 0
+	for _, b := range c {
+		if !b.Available(ctx) {
+			continue
+		}
+		if putErr := b.Put(ctx, key, bytes.NewReader(data), int64(len(data))); putErr != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("chain put to %s: %w", b.Name(), putErr)
+			}
+			continue
+		}
+		wrote++
+	}
+	if wrote == 0 {
+		if firstErr != nil {
+			return firstErr
+		}
 		return ErrNoBackendAvailable
 	}
-	return b.Put(ctx, key, r, size)
+	return firstErr
 }
 
 func (c Chain) Get(ctx context.Context, key string) (io.ReadCloser, *Object, error) {
@@ -81,12 +110,26 @@ func (c Chain) Get(ctx context.Context, key string) (io.ReadCloser, *Object, err
 	return b.Get(ctx, key)
 }
 
+// Delete removes the object from ALL available backends.
 func (c Chain) Delete(ctx context.Context, key string) error {
-	b := c.active(ctx)
-	if b == nil {
+	var firstErr error
+	deleted := 0
+	for _, b := range c {
+		if !b.Available(ctx) {
+			continue
+		}
+		if err := b.Delete(ctx, key); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("chain delete from %s: %w", b.Name(), err)
+			}
+			continue
+		}
+		deleted++
+	}
+	if deleted == 0 && firstErr == nil {
 		return ErrNoBackendAvailable
 	}
-	return b.Delete(ctx, key)
+	return firstErr
 }
 
 func (c Chain) Stat(ctx context.Context, key string) (*Object, error) {

@@ -159,25 +159,19 @@ func ensureIncusProfiles(root string) error {
 		profilePath := filepath.Join(profilesDir, entry.Name())
 
 		if incusProfileExists(profileName) {
-			// Update existing profile
-			if err := runCmd("incus", "profile", "edit", profileName,
-				"<", profilePath); err != nil {
-				// incus profile edit doesn't support < redirection via exec;
-				// use shell explicitly
-				if err2 := runCmd("sh", "-c",
-					fmt.Sprintf("incus profile edit %s < %s", profileName, profilePath)); err2 != nil {
-					printWarn(fmt.Sprintf("could not update profile %q: %v", profileName, err2))
-					continue
-				}
+			// Update existing profile — pipe YAML file directly to stdin,
+			// no shell involved so profileName/profilePath can't inject commands.
+			if err := runCmdWithFileStdin(profilePath, "incus", "profile", "edit", profileName); err != nil {
+				printWarn(fmt.Sprintf("could not update profile %q: %v", profileName, err))
+				continue
 			}
 			printOK(fmt.Sprintf("updated profile %q", profileName))
 		} else {
-			// Create new profile then apply YAML
+			// Create new profile then apply YAML.
 			if err := runCmd("incus", "profile", "create", profileName); err != nil {
 				return fmt.Errorf("creating profile %q: %w", profileName, err)
 			}
-			if err := runCmd("sh", "-c",
-				fmt.Sprintf("incus profile edit %s < %s", profileName, profilePath)); err != nil {
+			if err := runCmdWithFileStdin(profilePath, "incus", "profile", "edit", profileName); err != nil {
 				return fmt.Errorf("applying profile %q: %w", profileName, err)
 			}
 			printOK(fmt.Sprintf("created profile %q", profileName))
