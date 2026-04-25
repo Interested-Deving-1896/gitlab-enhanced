@@ -541,3 +541,33 @@ integration:ipfs-pin:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH'
+
+integration:bfg-pin-e2e:
+  extends: .integration-base
+  needs:
+    - job: build:pin-helper
+      artifacts: true
+  script:
+    - install -m 0755 bdfs-pin-helper /usr/local/bin/bdfs-pin-helper
+    # Install bfg with bdfs patch from the btr-fs-git submodule
+    - |
+      if [ -d integrations/btr-fs-git ] && [ -f integrations/btr-fs-git/pyproject.toml ]; then
+        pip3 install --quiet integrations/btr-fs-git
+      fi
+    # Start Kubo daemon for IPFS pinning
+    - |
+      ipfs init --profile=test 2>/dev/null || true
+      ipfs daemon --offline &
+      IPFS_PID=$!
+      sleep 3
+      echo "Kubo PID: ${IPFS_PID}"
+    - bash tests/integration/test_bfg_pin_e2e.sh
+  after_script:
+    - kill $(pgrep ipfs) 2>/dev/null || true
+  artifacts:
+    when: always
+    paths: [tests/integration/logs/]
+    expire_in: 3 days
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
