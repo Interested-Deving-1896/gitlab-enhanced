@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -62,6 +63,20 @@ func runCmd(name string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
+	return cmd.Run()
+}
+
+// runCmdContext runs a command attached to the terminal, forwarding stdin/stdout/stderr.
+// The child process receives SIGTERM when ctx is cancelled, giving it a chance
+// to flush in-flight work before the parent exits.
+func runCmdContext(ctx context.Context, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	// exec.CommandContext sends SIGKILL on cancellation by default.
+	// Override to SIGTERM so the child can flush gracefully.
+	cmd.WaitDelay = 5 * time.Second
 	return cmd.Run()
 }
 

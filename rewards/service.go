@@ -7,8 +7,11 @@
 // Architecture:
 //   - No brave-core dependency. BAT is an ERC-20 token; all interactions use
 //     the Brave publisher verification API and standard Ethereum JSON-RPC.
-//   - Custodial path: Uphold REST API for fiat-equivalent payouts.
-//   - Non-custodial path: direct ERC-20 transfers via go-ethereum (planned).
+//   - Custodial path: Uphold REST API (set rewards.uphold_client_id +
+//     rewards.uphold_client_secret).
+//   - Non-custodial path: direct ERC-20 transfer via Ethereum JSON-RPC
+//     (set rewards.eth_rpc_url + rewards.eth_private_key). Uses
+//     golang.org/x/crypto/sha3 for Keccak-256 transaction hashing.
 //
 // Reward triggers:
 //   - Merged MR:        contributor receives a configurable BAT tip
@@ -67,6 +70,10 @@ type Config struct {
 	EthPrivateKey string
 	// EthChainID is the Ethereum chain ID (1=mainnet, 11155111=Sepolia). Defaults to 1.
 	EthChainID int64
+
+	// UpholdAPIBase overrides the Uphold API base URL. Empty means production
+	// (https://api.uphold.com). Set in tests to point at a local fake server.
+	UpholdAPIBase string
 }
 
 // ContributionEvent describes a GitLab event that triggers a BAT reward.
@@ -682,8 +689,12 @@ func (s *Service) submitUpholdPayout(reward PendingReward, wallet WalletRegistra
 		"destination": destination,
 	})
 
+	upholdBase := s.cfg.UpholdAPIBase
+	if upholdBase == "" {
+		upholdBase = "https://api.uphold.com"
+	}
 	req, err := http.NewRequest(http.MethodPost,
-		"https://api.uphold.com/v0/me/cards/"+s.cfg.PublisherID+"/transactions?commit=true",
+		upholdBase+"/v0/me/cards/"+s.cfg.PublisherID+"/transactions?commit=true",
 		bytes.NewReader(txBody),
 	)
 	if err != nil {
@@ -716,9 +727,13 @@ func (s *Service) submitUpholdPayout(reward PendingReward, wallet WalletRegistra
 
 // upholdToken fetches a short-lived OAuth2 bearer token from Uphold.
 func (s *Service) upholdToken() (string, error) {
+	upholdBase := s.cfg.UpholdAPIBase
+	if upholdBase == "" {
+		upholdBase = "https://api.uphold.com"
+	}
 	body := []byte("grant_type=client_credentials")
 	req, err := http.NewRequest(http.MethodPost,
-		"https://api.uphold.com/oauth2/token",
+		upholdBase+"/oauth2/token",
 		bytes.NewReader(body),
 	)
 	if err != nil {

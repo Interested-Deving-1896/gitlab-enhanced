@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/spf13/cobra"
 )
@@ -30,7 +34,9 @@ Optional (--with-k8s):
 Optional (--with-gitpod, requires --with-k8s):
   6. Gitpod Classic — full dev environment platform on the K8s cluster`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUp(*cfgRoot, withK8s, withGitpod, dryRun)
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			return runUp(ctx, *cfgRoot, withK8s, withGitpod, dryRun)
 		},
 	}
 
@@ -44,7 +50,7 @@ Optional (--with-gitpod, requires --with-k8s):
 	return cmd
 }
 
-func runUp(root string, withK8s, withGitpod, dryRun bool) error {
+func runUp(ctx context.Context, root string, withK8s, withGitpod, dryRun bool) error {
 	if withGitpod {
 		withK8s = true
 	}
@@ -73,7 +79,7 @@ func runUp(root string, withK8s, withGitpod, dryRun bool) error {
 	if dryRun {
 		printInfo(fmt.Sprintf("would run: ansible-playbook %s/gitlab.yml", ansibleDir))
 	} else {
-		if err := runAnsible(ansibleDir, "gitlab.yml",
+		if err := runAnsible(ctx, ansibleDir, "gitlab.yml",
 			"-e", fmt.Sprintf("gitlab_domain=%s", cfg.GitLab.Domain),
 			"-e", fmt.Sprintf("gitlab_edition=%s", cfg.GitLab.Edition),
 		); err != nil {
@@ -87,7 +93,7 @@ func runUp(root string, withK8s, withGitpod, dryRun bool) error {
 	if dryRun {
 		printInfo(fmt.Sprintf("would run: ansible-playbook %s/lfs.yml", ansibleDir))
 	} else {
-		if err := runAnsible(ansibleDir, "lfs.yml",
+		if err := runAnsible(ctx, ansibleDir, "lfs.yml",
 			"-e", fmt.Sprintf("lfs_server=%s", cfg.LFS.Server),
 			"-e", fmt.Sprintf("lfs_backend=%s", cfg.LFS.Backend),
 			"-e", fmt.Sprintf("lfs_path=%s", cfg.LFS.Path),
@@ -102,7 +108,7 @@ func runUp(root string, withK8s, withGitpod, dryRun bool) error {
 	if dryRun {
 		printInfo(fmt.Sprintf("would run: ansible-playbook %s/soft-serve.yml", ansibleDir))
 	} else {
-		if err := runAnsible(ansibleDir, "soft-serve.yml"); err != nil {
+		if err := runAnsible(ctx, ansibleDir, "soft-serve.yml"); err != nil {
 			// Non-fatal — soft-serve is optional
 			printWarn(fmt.Sprintf("soft-serve failed to start: %v", err))
 		}
@@ -113,7 +119,7 @@ func runUp(root string, withK8s, withGitpod, dryRun bool) error {
 	if dryRun {
 		printInfo(fmt.Sprintf("would run: ansible-playbook %s/runner.yml", ansibleDir))
 	} else {
-		if err := runAnsible(ansibleDir, "runner.yml",
+		if err := runAnsible(ctx, ansibleDir, "runner.yml",
 			"-e", fmt.Sprintf("gitlab_url=https://%s", cfg.GitLab.Domain),
 		); err != nil {
 			printWarn(fmt.Sprintf("runner setup failed (register manually): %v", err))
@@ -127,7 +133,7 @@ func runUp(root string, withK8s, withGitpod, dryRun bool) error {
 		if dryRun {
 			printInfo(fmt.Sprintf("would run: ansible-playbook %s/playbooks/k8s-cluster.yml", k8sPlaybookDir))
 		} else {
-			if err := runAnsible(k8sPlaybookDir, "playbooks/k8s-cluster.yml"); err != nil {
+			if err := runAnsible(ctx, k8sPlaybookDir, "playbooks/k8s-cluster.yml"); err != nil {
 				return fmt.Errorf("provisioning K8s cluster: %w", err)
 			}
 		}
@@ -141,7 +147,7 @@ func runUp(root string, withK8s, withGitpod, dryRun bool) error {
 		if dryRun {
 			printInfo(fmt.Sprintf("would run: ansible-playbook %s/playbooks/k8s-gitpod.yml", k8sPlaybookDir))
 		} else {
-			if err := runAnsible(k8sPlaybookDir, "playbooks/k8s-gitpod.yml",
+			if err := runAnsible(ctx, k8sPlaybookDir, "playbooks/k8s-gitpod.yml",
 				"-e", fmt.Sprintf("gitpod_domain=gitpod.%s", cfg.GitLab.Domain),
 			); err != nil {
 				return fmt.Errorf("installing Gitpod Classic: %w", err)
@@ -156,7 +162,7 @@ func runUp(root string, withK8s, withGitpod, dryRun bool) error {
 		if dryRun {
 			printInfo(fmt.Sprintf("would run: ansible-playbook %s/adblock.yml", ansibleDir))
 		} else {
-			if err := runAnsible(ansibleDir, "adblock.yml",
+			if err := runAnsible(ctx, ansibleDir, "adblock.yml",
 				"-e", fmt.Sprintf("adblock_listen=%s", cfg.Adblock.ListenAddr),
 				"-e", fmt.Sprintf("adblock_lists_dir=%s", cfg.Adblock.ListsDir),
 			); err != nil {
@@ -190,9 +196,9 @@ func runUp(root string, withK8s, withGitpod, dryRun bool) error {
 }
 
 // runAnsible runs an ansible-playbook from the given directory.
-func runAnsible(dir, playbook string, extraArgs ...string) error {
+// The playbook process receives SIGTERM when ctx is cancelled (SIGINT/SIGTERM
+// from the user), giving Ansible a chance to finish the current task cleanly.
+func runAnsible(ctx context.Context, dir, playbook string, extraArgs ...string) error {
 	args := append([]string{playbook}, extraArgs...)
-	cmd := buildCmd("ansible-playbook", args...)
-	cmd.Dir = dir
-	return cmd.Run()
+	return runCmdContext(ctx, "ansible-playbook", args...)
 }

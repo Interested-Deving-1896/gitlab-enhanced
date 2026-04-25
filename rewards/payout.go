@@ -22,20 +22,20 @@ package rewards
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
+	"math"
 	"math/big"
 	"net/http"
 	"strings"
 	"time"
 
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/sha256"
-	"crypto/sha512"
-	"hash"
-	"math"
+	secp256k1 "github.com/decred/dcrd/dcrec/secp256k1/v4"
+	dcrecdsa "github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
+	"golang.org/x/crypto/sha3"
 )
 
 // batContractAddress is the BAT ERC-20 contract on Ethereum mainnet.
@@ -278,33 +278,24 @@ func signLegacyTx(
 	return signed, nil
 }
 
-// ecdsaSign signs hash with key using secp256k1 and returns (r, s, v) for
-// EIP-155 replay protection. v = chainID*2 + 35 + recovery_bit.
-func ecdsaSign(key *ecdsa.PrivateKey, hash []byte, chainID int64) (*big.Int, *big.Int, *big.Int, error) {
-	// Use Go's standard ECDSA signing. Note: Go's crypto/ecdsa uses P-256 by
-	// default; for Ethereum we need secp256k1. Since adding github.com/ethereum/go-ethereum
-	// is out of scope, we use the btcec-compatible approach via the standard
-	// library's elliptic.Sign on the secp256k1 curve parameters.
-	//
-	// For production use, replace this with a proper secp256k1 library.
-	// This implementation uses Go's ECDSA with the curve parameters set to
-	// secp256k1 values, which is functionally correct but not constant-time.
-	curve := secp256k1Curve()
-	r, s, err := ecdsa.Sign(rand.Reader, &ecdsa.PrivateKey{
-		PublicKey: ecdsa.PublicKey{Curve: curve, X: key.X, Y: key.Y},
-		D:         key.D,
-	}, hash)
-	if err != nil {
-		return nil, nil, nil, err
+// ecdsaSign signs hash with key using constant-time secp256k1 (decred/dcrd)
+// and returns (r, s, v) for EIP-155 replay protection.
+// v = chainID*2 + 35 + recovery_bit.
+func ecdsaSign(key *ecdsa.PrivateKey, msgHash []byte, chainID int64) (*big.Int, *big.Int, *big.Int, error) {
+	// Parse the private key into decred's constant-time representation.
+	privKey := secp256k1.PrivKeyFromBytes(key.D.Bytes())
+
+	// Sign using RFC6979 deterministic nonce (constant-time, no rand.Reader).
+	sig := dcrecdsa.SignCompact(privKey, msgHash, false)
+	// SignCompact returns: [recovery_flag(1)] [r(32)] [s(32)]
+	if len(sig) != 65 {
+		return nil, nil, nil, fmt.Errorf("unexpected signature length %d", len(sig))
 	}
 
-	// Compute recovery bit (0 or 1) by trying both and checking which
-	// reconstructed public key matches.
-	recoveryBit := int64(0)
-	pub := recoverPublicKey(curve, hash, r, s, 0)
-	if pub == nil || pub.X.Cmp(key.X) != 0 {
-		recoveryBit = 1
-	}
+	// The first byte encodes the recovery ID (27 or 28 for uncompressed).
+	recoveryBit := int64(sig[0] - 27)
+	r := new(big.Int).SetBytes(sig[1:33])
+	s := new(big.Int).SetBytes(sig[33:65])
 
 	// EIP-155: v = chainID * 2 + 35 + recoveryBit
 	v := new(big.Int).SetInt64(chainID*2 + 35 + recoveryBit)
@@ -391,24 +382,16 @@ func keccak256(data []byte) []byte {
 	return h.Sum(nil)
 }
 
-// newKeccak256 returns a hash.Hash implementing Keccak-256 (legacy, pre-NIST).
-// Go's golang.org/x/crypto/sha3 package provides LegacyKeccak256 but we avoid
-// adding that dependency by implementing the sponge directly.
-// For simplicity we use SHA-256 as a placeholder here and note that production
-// deployments must replace this with a proper Keccak-256 implementation.
-//
-// NOTE: This is intentionally marked as a placeholder. The RLP + signing logic
-// above is correct; only this hash function needs replacing with a real
-// Keccak-256 (e.g. golang.org/x/crypto/sha3.NewLegacyKeccak256()) before
-// submitting real transactions.
+// newKeccak256 returns a hash.Hash implementing Keccak-256 (the pre-NIST
+// variant used by Ethereum — distinct from SHA3-256).
+// Uses golang.org/x/crypto/sha3.NewLegacyKeccak256().
 func newKeccak256() hash.Hash {
-	// Placeholder: use SHA-256. Replace with sha3.NewLegacyKeccak256() in production.
-	// The rest of the signing pipeline is correct.
-	_ = sha512.New // suppress unused import
-	return sha256.New()
+	return sha3.NewLegacyKeccak256()
 }
 
-// hexToECDSA parses a hex-encoded secp256k1 private key.
+// hexToECDSA parses a hex-encoded secp256k1 private key using the
+// constant-time decred/secp256k1 library. Returns a standard *ecdsa.PrivateKey
+// so the rest of the signing pipeline can use key.D for the decred API.
 func hexToECDSA(hexKey string) (*ecdsa.PrivateKey, error) {
 	hexKey = strings.TrimPrefix(hexKey, "0x")
 	b, err := hex.DecodeString(hexKey)
@@ -418,12 +401,17 @@ func hexToECDSA(hexKey string) (*ecdsa.PrivateKey, error) {
 	if len(b) != 32 {
 		return nil, fmt.Errorf("private key must be 32 bytes, got %d", len(b))
 	}
+	privKey := secp256k1.PrivKeyFromBytes(b)
+	pub := privKey.PubKey()
+	// Wrap in stdlib ecdsa.PrivateKey so callers can access .D for re-parsing.
 	curve := secp256k1Curve()
-	d := new(big.Int).SetBytes(b)
-	x, y := curve.ScalarBaseMult(b)
 	return &ecdsa.PrivateKey{
-		PublicKey: ecdsa.PublicKey{Curve: curve, X: x, Y: y},
-		D:         d,
+		PublicKey: ecdsa.PublicKey{
+			Curve: curve,
+			X:     pub.X(),
+			Y:     pub.Y(),
+		},
+		D: new(big.Int).SetBytes(b),
 	}, nil
 }
 
@@ -571,5 +559,5 @@ func genericScalarMult(c elliptic.Curve, x, y *big.Int, k []byte) (*big.Int, *bi
 	return rx, ry
 }
 
-// suppress unused import warnings for math package
+// suppress unused import — math is used only for math.MaxFloat64 in tests
 var _ = math.MaxFloat64

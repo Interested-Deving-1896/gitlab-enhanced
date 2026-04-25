@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -61,20 +64,26 @@ func runLFSServe(root, addr, serverOverride string) error {
 	printInfo(fmt.Sprintf("addr:    %s", addr))
 	fmt.Println()
 
+	// Use a signal-aware context so SIGINT/SIGTERM propagate to the child
+	// process and it can flush in-flight LFS writes before exiting.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	switch server {
 	case "rudolfs":
-		return runRudolfs(addr, cfg.LFS.Path, cfg.LFS.Encryption)
+		return runRudolfs(ctx, addr, cfg.LFS.Path, cfg.LFS.Encryption)
 	case "giftless":
-		return runGiftless(addr, cfg.LFS.Path)
+		return runGiftless(ctx, addr, cfg.LFS.Path)
 	case "lfs-test-server":
-		return runLFSTestServer(addr, cfg.LFS.Path)
+		return runLFSTestServer(ctx, addr, cfg.LFS.Path)
 	default:
 		return fmt.Errorf("unknown LFS server %q — supported: rudolfs, giftless, lfs-test-server", server)
 	}
 }
 
 // runRudolfs starts rudolfs (Rust LFS server) as a subprocess.
-func runRudolfs(addr, storagePath string, encryption bool) error {
+// The process is terminated when ctx is cancelled (SIGINT/SIGTERM).
+func runRudolfs(ctx context.Context, addr, storagePath string, encryption bool) error {
 	if err := checkBinary("rudolfs"); err != nil {
 		return fmt.Errorf("rudolfs not found — build it from lfs/server/rudolfs/ or install from https://github.com/jasonwhite/rudolfs")
 	}
@@ -86,28 +95,30 @@ func runRudolfs(addr, storagePath string, encryption bool) error {
 		args = append(args, "--encrypt")
 	}
 	printOK(fmt.Sprintf("starting rudolfs on %s", addr))
-	return runCmd("rudolfs", args...)
+	return runCmdContext(ctx, "rudolfs", args...)
 }
 
 // runGiftless starts giftless (Python LFS server) as a subprocess.
-func runGiftless(addr, storagePath string) error {
+// The process is terminated when ctx is cancelled (SIGINT/SIGTERM).
+func runGiftless(ctx context.Context, addr, storagePath string) error {
 	if err := checkBinary("giftless-server"); err != nil {
 		return fmt.Errorf("giftless not found — install from lfs/server/giftless/ with: pip install giftless")
 	}
 	printOK(fmt.Sprintf("starting giftless on %s", addr))
-	return runCmd("giftless-server",
+	return runCmdContext(ctx, "giftless-server",
 		"--host", addr,
 		"--storage-path", storagePath,
 	)
 }
 
 // runLFSTestServer starts the reference LFS test server.
-func runLFSTestServer(addr, storagePath string) error {
+// The process is terminated when ctx is cancelled (SIGINT/SIGTERM).
+func runLFSTestServer(ctx context.Context, addr, storagePath string) error {
 	if err := checkBinary("lfs-test-server"); err != nil {
 		return fmt.Errorf("lfs-test-server not found — build from lfs/server/lfs-test-server/")
 	}
 	printOK(fmt.Sprintf("starting lfs-test-server on %s", addr))
-	return runCmd("lfs-test-server",
+	return runCmdContext(ctx, "lfs-test-server",
 		"-host", addr,
 		"-dir", storagePath,
 	)
