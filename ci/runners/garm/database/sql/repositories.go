@@ -1,0 +1,304 @@
+// Copyright 2022 Cloudbase Solutions SRL
+//
+//    Licensed under the Apache License, Version 2.0 (the "License"); you may
+//    not use this file except in compliance with the License. You may obtain
+//    a copy of the License at
+//
+//         http://www.apache.org/licenses/LICENSE-2.0
+//
+//    Unless required by applicable law or agreed to in writing, software
+//    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+//    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+//    License for the specific language governing permissions and limitations
+//    under the License.
+
+package sql
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+
+	runnerErrors "github.com/cloudbase/garm-provider-common/errors"
+	"github.com/cloudbase/garm-provider-common/util"
+	"github.com/cloudbase/garm/database/common"
+	"github.com/cloudbase/garm/params"
+)
+
+func (s *sqlDatabase) CreateRepository(ctx context.Context, owner, name string, credentials params.ForgeCredentials, webhookSecret string, poolBalancerType params.PoolBalancerType, agentMode bool) (param params.Repository, err error) {
+	defer func() {
+		if err == nil {
+			s.sendNotify(common.RepositoryEntityType, common.CreateOperation, param)
+		}
+	}()
+
+	if webhookSecret == "" {
+		return params.Repository{}, errors.New("creating repo: missing secret")
+	}
+	secret, err := util.Seal([]byte(webhookSecret), []byte(s.cfg.Passphrase))
+	if err != nil {
+		return params.Repository{}, fmt.Errorf("failed to encrypt string")
+	}
+
+	newRepo := Repository{
+		Name:             name,
+		Owner:            owner,
+		WebhookSecret:    secret,
+		PoolBalancerType: poolBalancerType,
+		AgentMode:        agentMode,
+	}
+	err = s.conn.Transaction(func(tx *gorm.DB) error {
+		switch credentials.ForgeType {
+		case params.GithubEndpointType:
+			newRepo.CredentialsID = &credentials.ID
+		case params.GiteaEndpointType:
+			newRepo.GiteaCredentialsID = &credentials.ID
+		default:
+			return runnerErrors.NewBadRequestError("unsupported credentials type")
+		}
+
+		newRepo.EndpointName = &credentials.Endpoint.Name
+		q := tx.Create(&newRepo)
+		if q.Error != nil {
+			return fmt.Errorf("error creating repository: %w", q.Error)
+		}
+		return nil
+	})
+	if err != nil {
+		return params.Repository{}, fmt.Errorf("error creating repository: %w", err)
+	}
+
+	ret, err := s.GetRepositoryByID(ctx, newRepo.ID.String())
+	if err != nil {
+		return params.Repository{}, fmt.Errorf("error creating repository: %w", err)
+	}
+
+	return ret, nil
+}
+
+func (s *sqlDatabase) GetRepository(ctx context.Context, owner, name, endpointName string) (params.Repository, error) {
+	repo, err := s.getRepo(ctx, owner, name, endpointName)
+	if err != nil {
+		return params.Repository{}, fmt.Errorf("error fetching repo: %w", err)
+	}
+
+	param, err := s.sqlToCommonRepository(repo, true)
+	if err != nil {
+		return params.Repository{}, fmt.Errorf("error fetching repo: %w", err)
+	}
+
+	return param, nil
+}
+
+func (s *sqlDatabase) ListRepositories(_ context.Context, filter params.RepositoryFilter) ([]params.Repository, error) {
+	var repos []Repository
+	q := s.conn.
+		Preload("Credentials").
+		Preload("GiteaCredentials").
+		Preload("Credentials.Endpoint").
+		Preload("GiteaCredentials.Endpoint").
+		Preload("Endpoint")
+	if filter.Owner != "" {
+		q = q.Where("owner = ?", filter.Owner)
+	}
+	if filter.Name != "" {
+		q = q.Where("name = ?", filter.Name)
+	}
+	if filter.Endpoint != "" {
+		q = q.Where("endpoint_name = ?", filter.Endpoint)
+	}
+	q = q.Find(&repos)
+	if q.Error != nil {
+		return []params.Repository{}, fmt.Errorf("error fetching user from database: %w", q.Error)
+	}
+
+	ret := make([]params.Repository, len(repos))
+	for idx, val := range repos {
+		var err error
+		ret[idx], err = s.sqlToCommonRepository(val, true)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching repositories: %w", err)
+		}
+	}
+
+	return ret, nil
+}
+
+func (s *sqlDatabase) DeleteRepository(ctx context.Context, repoID string) (err error) {
+	repo, err := s.getRepoByID(ctx, s.conn, repoID, "Endpoint", "Credentials", "Credentials.Endpoint", "GiteaCredentials", "GiteaCredentials.Endpoint")
+	if err != nil {
+		return fmt.Errorf("error fetching repo: %w", err)
+	}
+
+	defer func(repo Repository) {
+		if err == nil {
+			asParam, innerErr := s.sqlToCommonRepository(repo, true)
+			if innerErr == nil {
+				s.sendNotify(common.RepositoryEntityType, common.DeleteOperation, asParam)
+			} else {
+				slog.With(slog.Any("error", innerErr)).ErrorContext(ctx, "error sending delete notification", "repo", repoID)
+			}
+		}
+	}(repo)
+
+	q := s.conn.Unscoped().Delete(&repo)
+	if q.Error != nil && !errors.Is(q.Error, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("error deleting repo: %w", q.Error)
+	}
+
+	return nil
+}
+
+func (s *sqlDatabase) UpdateRepository(ctx context.Context, repoID string, param params.UpdateEntityParams) (newParams params.Repository, err error) {
+	var rowsAffected int64
+	defer func() {
+		if err == nil && rowsAffected > 0 {
+			s.sendNotify(common.RepositoryEntityType, common.UpdateOperation, newParams)
+		}
+	}()
+	var repo Repository
+	err = s.conn.Transaction(func(tx *gorm.DB) error {
+		var err error
+		repo, err = s.getRepoByID(ctx, tx, repoID, "Endpoint")
+		if err != nil {
+			return fmt.Errorf("error fetching repo: %w", err)
+		}
+		if repo.EndpointName == nil {
+			return runnerErrors.NewUnprocessableError("repository has no endpoint")
+		}
+
+		updates := make(map[string]interface{})
+
+		if err := s.updateEntityCredentials(ctx, tx, &repo, param.CredentialsName, updates); err != nil {
+			return err
+		}
+
+		if param.WebhookSecret != "" {
+			// Decrypt existing secret to compare
+			existingSecret, err := util.Unseal(repo.WebhookSecret, []byte(s.cfg.Passphrase))
+			if err != nil {
+				return fmt.Errorf("failed to decrypt existing webhook secret: %w", err)
+			}
+			// Only update if the webhook secret has changed
+			if string(existingSecret) != param.WebhookSecret {
+				secret, err := util.Seal([]byte(param.WebhookSecret), []byte(s.cfg.Passphrase))
+				if err != nil {
+					return fmt.Errorf("saving repo: failed to encrypt string: %w", err)
+				}
+				updates["webhook_secret"] = secret
+			}
+		}
+
+		if param.PoolManagerStatus != nil {
+			if param.PoolManagerStatus.IsRunning != repo.PoolManagerRunning {
+				updates["pool_manager_running"] = param.PoolManagerStatus.IsRunning
+			}
+			if param.PoolManagerStatus.FailureReason != repo.PoolManagerFailureReason {
+				updates["pool_manager_failure_reason"] = param.PoolManagerStatus.FailureReason
+			}
+		}
+
+		if param.PoolBalancerType != "" && param.PoolBalancerType != repo.PoolBalancerType {
+			updates["pool_balancer_type"] = param.PoolBalancerType
+		}
+		if param.AgentMode != nil && *param.AgentMode != repo.AgentMode {
+			updates["agent_mode"] = *param.AgentMode
+		}
+
+		if len(updates) > 0 {
+			q := tx.Model(&repo).Omit("Endpoint").Updates(updates)
+			if q.Error != nil {
+				return fmt.Errorf("error saving repo: %w", q.Error)
+			}
+			rowsAffected = q.RowsAffected
+		}
+
+		return nil
+	})
+	if err != nil {
+		return params.Repository{}, fmt.Errorf("error saving repo: %w", err)
+	}
+
+	repo, err = s.getRepoByID(ctx, s.conn, repoID, "Endpoint", "Credentials", "Credentials.Endpoint", "GiteaCredentials", "GiteaCredentials.Endpoint")
+	if err != nil {
+		return params.Repository{}, fmt.Errorf("error updating enterprise: %w", err)
+	}
+
+	newParams, err = s.sqlToCommonRepository(repo, true)
+	if err != nil {
+		return params.Repository{}, fmt.Errorf("error saving repo: %w", err)
+	}
+	return newParams, nil
+}
+
+func (s *sqlDatabase) GetRepositoryByID(ctx context.Context, repoID string) (params.Repository, error) {
+	preloadList := []string{
+		"Pools",
+		"Credentials",
+		"Endpoint",
+		"Credentials.Endpoint",
+		"GiteaCredentials",
+		"GiteaCredentials.Endpoint",
+		"Events",
+	}
+	repo, err := s.getRepoByID(ctx, s.conn, repoID, preloadList...)
+	if err != nil {
+		return params.Repository{}, fmt.Errorf("error fetching repo: %w", err)
+	}
+
+	param, err := s.sqlToCommonRepository(repo, true)
+	if err != nil {
+		return params.Repository{}, fmt.Errorf("error fetching repo: %w", err)
+	}
+	return param, nil
+}
+
+func (s *sqlDatabase) getRepo(_ context.Context, owner, name, endpointName string) (Repository, error) {
+	var repo Repository
+
+	q := s.conn.Where("name = ? COLLATE NOCASE and owner = ? COLLATE NOCASE and endpoint_name = ? COLLATE NOCASE", name, owner, endpointName).
+		Preload("Credentials").
+		Preload("Credentials.Endpoint").
+		Preload("GiteaCredentials").
+		Preload("GiteaCredentials.Endpoint").
+		Preload("Endpoint").
+		First(&repo)
+
+	q = q.First(&repo)
+
+	if q.Error != nil {
+		if errors.Is(q.Error, gorm.ErrRecordNotFound) {
+			return Repository{}, runnerErrors.ErrNotFound
+		}
+		return Repository{}, fmt.Errorf("error fetching repository from database: %w", q.Error)
+	}
+	return repo, nil
+}
+
+func (s *sqlDatabase) getRepoByID(_ context.Context, tx *gorm.DB, id string, preload ...string) (Repository, error) {
+	u, err := uuid.Parse(id)
+	if err != nil {
+		return Repository{}, runnerErrors.NewBadRequestError("error parsing id: %s", err)
+	}
+	var repo Repository
+
+	q := tx
+	if len(preload) > 0 {
+		for _, field := range preload {
+			q = q.Preload(field)
+		}
+	}
+	q = q.Where("id = ?", u).First(&repo)
+
+	if q.Error != nil {
+		if errors.Is(q.Error, gorm.ErrRecordNotFound) {
+			return Repository{}, runnerErrors.ErrNotFound
+		}
+		return Repository{}, fmt.Errorf("error fetching repository from database: %w", q.Error)
+	}
+	return repo, nil
+}

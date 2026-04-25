@@ -1,0 +1,82 @@
+name: Go Tests
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  linters:
+    name: Linters
+    runs-on: ubuntu-noble-garm
+    timeout-minutes: 10
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libbtrfs-dev build-essential apg jq
+
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: make lint
+        run: make golangci-lint && GOLANGCI_LINT_EXTRA_ARGS="--timeout=8m --build-tags=testing,integration" make lint
+      - name: Verify go vendor, go modules and gofmt
+        run: |
+          sudo apt-get install -y jq
+          make verify
+
+  go-tests:
+    runs-on: ubuntu-noble-garm
+    needs: [linters]
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libbtrfs-dev build-essential apg jq default-jre
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '>=v24.5.0'
+
+      - name: Set up openapi-generator-cli
+        run: |
+          mkdir -p $HOME/openapi-generator
+          cd $HOME/openapi-generator
+          npm install @openapitools/openapi-generator-cli
+          echo "$HOME/openapi-generator/node_modules/.bin" >> $GITHUB_PATH
+
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Golang
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - run: go version
+
+      - name: Run go generate
+        run: |
+          make generate
+
+      - name: Run GARM Go Tests
+        run: make go-test
+
+      - name: Run web UI tests
+        run: |
+          make webui-test
