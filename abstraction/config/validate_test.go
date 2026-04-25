@@ -128,7 +128,7 @@ func TestValidate_RewardsMissingWallet(t *testing.T) {
 	cfg := validBase()
 	cfg.Rewards.Enabled = true
 	cfg.Rewards.WebhookSecret = "secret"
-	assertValidationError(t, cfg, "rewards:")
+	assertValidationError(t, cfg, "rewards.uphold_client_id")
 }
 
 func TestValidate_RewardsUpholdMissingSecret(t *testing.T) {
