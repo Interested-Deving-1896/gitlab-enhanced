@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -228,18 +227,6 @@ func mfsKey(key string) string {
 		return "/gitlab-enhanced" + key
 	}
 	return "/gitlab-enhanced/" + key
-}
-
-// ipfsErrorBody reads and returns the error message from an IPFS API error response.
-func ipfsErrorBody(r io.Reader) string {
-	var result struct {
-		Message string `json:"Message"`
-	}
-	data, _ := io.ReadAll(r)
-	if err := json.Unmarshal(data, &result); err == nil && result.Message != "" {
-		return result.Message
-	}
-	return string(bytes.TrimSpace(data))
 }
 
 var _ Backend = (*IPFSBackend)(nil)

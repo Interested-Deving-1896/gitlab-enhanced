@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	lfsabstraction "gitlab.com/openos-project/git-management_deving/gitlab-enhanced/lfs/abstraction"
 )
 
 func newLFSCmd(cfgRoot *string) *cobra.Command {
@@ -81,47 +83,38 @@ func runLFSServe(root, addr, serverOverride string) error {
 	}
 }
 
-// runRudolfs starts rudolfs (Rust LFS server) as a subprocess.
-// The process is terminated when ctx is cancelled (SIGINT/SIGTERM).
+// runLFSServer starts the named LFS server binary via ExecServer, which owns
+// the subprocess lifecycle (health polling, SIGTERM→SIGKILL on shutdown).
+func runLFSServer(ctx context.Context, binary, addr string, args []string) error {
+	if err := checkBinary(binary); err != nil {
+		return err
+	}
+	printOK(fmt.Sprintf("starting %s on %s", binary, addr))
+	srv := lfsabstraction.NewExecServer(binary, addr, args)
+	return srv.Start(ctx, lfsabstraction.Config{})
+}
+
+// runRudolfs starts rudolfs (Rust LFS server) via ExecServer.
 func runRudolfs(ctx context.Context, addr, storagePath string, encryption bool) error {
-	if err := checkBinary("rudolfs"); err != nil {
-		return fmt.Errorf("rudolfs not found — build it from lfs/server/rudolfs/ or install from https://github.com/jasonwhite/rudolfs")
-	}
-	args := []string{
-		"--host", addr,
-		"--cache-dir", storagePath,
-	}
+	args := []string{"--host", addr, "--cache-dir", storagePath}
 	if encryption {
 		args = append(args, "--encrypt")
 	}
-	printOK(fmt.Sprintf("starting rudolfs on %s", addr))
-	return runCmdContext(ctx, "rudolfs", args...)
+	return runLFSServer(ctx, "rudolfs", addr, args)
 }
 
-// runGiftless starts giftless (Python LFS server) as a subprocess.
-// The process is terminated when ctx is cancelled (SIGINT/SIGTERM).
+// runGiftless starts giftless (Python LFS server) via ExecServer.
 func runGiftless(ctx context.Context, addr, storagePath string) error {
-	if err := checkBinary("giftless-server"); err != nil {
-		return fmt.Errorf("giftless not found — install from lfs/server/giftless/ with: pip install giftless")
-	}
-	printOK(fmt.Sprintf("starting giftless on %s", addr))
-	return runCmdContext(ctx, "giftless-server",
-		"--host", addr,
-		"--storage-path", storagePath,
-	)
+	return runLFSServer(ctx, "giftless-server", addr, []string{
+		"--host", addr, "--storage-path", storagePath,
+	})
 }
 
-// runLFSTestServer starts the reference LFS test server.
-// The process is terminated when ctx is cancelled (SIGINT/SIGTERM).
+// runLFSTestServer starts the reference LFS test server via ExecServer.
 func runLFSTestServer(ctx context.Context, addr, storagePath string) error {
-	if err := checkBinary("lfs-test-server"); err != nil {
-		return fmt.Errorf("lfs-test-server not found — build from lfs/server/lfs-test-server/")
-	}
-	printOK(fmt.Sprintf("starting lfs-test-server on %s", addr))
-	return runCmdContext(ctx, "lfs-test-server",
-		"-host", addr,
-		"-dir", storagePath,
-	)
+	return runLFSServer(ctx, "lfs-test-server", addr, []string{
+		"-host", addr, "-dir", storagePath,
+	})
 }
 
 func newLFSStatusCmd(cfgRoot *string) *cobra.Command {
