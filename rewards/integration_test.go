@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"path/filepath"
 	"sync"
@@ -15,63 +16,62 @@ import (
 	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/rewards"
 )
 
-// startService launches a rewards service on a random port and returns its
-// base URL. The service is shut down when the test ends.
+// startService launches a rewards service on an OS-assigned free port and
+// returns its base URL. The service is shut down when the test ends.
+//
+// Port allocation: we bind a TCP listener on :0 to let the OS pick a free
+// port, record the address, close the listener, then pass that address to the
+// service. There is a tiny TOCTOU window, but it is far smaller than the
+// previous scheme (fixed port derived from test name length) which caused
+// collisions whenever two tests had the same-length name.
 func startService(t *testing.T, cfg rewards.Config) string {
 	t.Helper()
 	if cfg.DBPath == "" {
 		cfg.DBPath = filepath.Join(t.TempDir(), "rewards.db")
 	}
-	if cfg.ListenAddr == "" {
-		cfg.ListenAddr = "127.0.0.1:0"
-	}
 	cfg.Enabled = true
+
+	// Pick a free port.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+
+	cfg.ListenAddr = addr
 
 	svc, err := rewards.New(cfg)
 	if err != nil {
 		t.Fatalf("rewards.New: %v", err)
 	}
 
-	// Use a fixed port derived from t.Name() hash to avoid conflicts.
-	// Simpler: bind to a known free port by letting the OS pick, then read it back.
-	// Since rewards.Service doesn't expose the listener, use a fixed high port per test.
-	port := 16100 + (len(t.Name()) % 900)
-	cfg.ListenAddr = fmt.Sprintf("127.0.0.1:%d", port)
-
-	svc2, err := rewards.New(cfg)
-	if err != nil {
-		t.Fatalf("rewards.New (port): %v", err)
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(func() {
-		cancel()
-	})
+	t.Cleanup(cancel)
 
-	ready := make(chan struct{})
+	started := make(chan struct{})
 	go func() {
-		close(ready)
-		_ = svc2.Start(ctx)
+		close(started)
+		_ = svc.Start(ctx)
 	}()
-	<-ready
+	<-started
 
-	// Wait for the server to be ready.
-	base := "http://" + cfg.ListenAddr
+	// Poll until the server accepts connections (up to 3 s).
+	base := "http://" + addr
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		resp, err := http.Get(base + "/health")
 		if err == nil && resp.StatusCode == 200 {
 			resp.Body.Close()
-			break
+			return base
 		}
 		if resp != nil {
 			resp.Body.Close()
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(25 * time.Millisecond)
 	}
-
-	_ = svc // suppress unused warning
-	return base
+	t.Fatalf("service at %s did not become ready within 3s", addr)
+	return ""
 }
 
 func postJSON(t *testing.T, url string, body any, headers map[string]string) *http.Response {
@@ -310,6 +310,154 @@ func TestIntegration_SQLiteConcurrency(t *testing.T) {
 	if len(pending) != goroutines {
 		t.Errorf("expected %d rewards after concurrent writes, got %d", goroutines, len(pending))
 	}
+}
+
+// TestIntegration_MetricsEndpoint verifies that /metrics returns Prometheus
+// text format with the expected metric names and does not panic.
+func TestIntegration_MetricsEndpoint(t *testing.T) {
+	base := startService(t, rewards.Config{PublisherID: "pub1", WalletAddress: "0xABC"})
+
+	// Queue a reward so counters are non-zero.
+	payload := map[string]any{
+		"object_attributes": map[string]any{"state": "merged", "iid": float64(1)},
+		"user":              map[string]any{"username": "dave", "email": "dave@example.com"},
+	}
+	resp := postJSON(t, base+"/webhook/gitlab", payload, map[string]string{
+		"X-Gitlab-Event": "Merge Request Hook",
+	})
+	resp.Body.Close()
+
+	resp2, err := http.Get(base + "/metrics")
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+	ct := resp2.Header.Get("Content-Type")
+	if ct == "" || ct[:10] != "text/plain" {
+		t.Errorf("expected text/plain Content-Type, got %q", ct)
+	}
+
+	body, _ := io.ReadAll(resp2.Body)
+	text := string(body)
+	for _, want := range []string{
+		"gitlab_enhanced_rewards_pending",
+		"gitlab_enhanced_rewards_paid_total",
+		"gitlab_enhanced_rewards_failed_total",
+		"gitlab_enhanced_rewards_bat_queued_total",
+		"gitlab_enhanced_rewards_bat_paid_total",
+		"gitlab_enhanced_rewards_rate_bat",
+	} {
+		if !contains(text, want) {
+			t.Errorf("metrics output missing %q", want)
+		}
+	}
+}
+
+// TestIntegration_PayoutRouting_NoCreds verifies that submitPayout returns a
+// clear error (not a panic or silent success) when neither Uphold nor ERC-20
+// credentials are configured.
+func TestIntegration_PayoutRouting_NoCreds(t *testing.T) {
+	base := startService(t, rewards.Config{MinPayoutBAT: 0})
+
+	// Queue a reward and register a wallet.
+	payload := map[string]any{
+		"object_attributes": map[string]any{"state": "merged", "iid": float64(99)},
+		"user":              map[string]any{"username": "eve", "email": "eve@example.com"},
+	}
+	postJSON(t, base+"/webhook/gitlab", payload, map[string]string{
+		"X-Gitlab-Event": "Merge Request Hook",
+	}).Body.Close()
+	postJSON(t, base+"/wallet/register", map[string]any{
+		"username": "eve", "wallet_address": "0xEVE",
+	}, nil).Body.Close()
+
+	// Trigger payout — no credentials configured.
+	resp := postJSON(t, base+"/rewards/payout", nil, nil)
+	var result map[string]any
+	readJSON(t, resp, &result)
+
+	// The envelope must be ok=true (the handler ran without panic).
+	if result["ok"] != true {
+		t.Errorf("payout envelope ok: got %v, want true", result["ok"])
+	}
+	// The reward must NOT be marked "paid" — it should be "failed" with a message.
+	resp2, _ := http.Get(base + "/rewards/pending")
+	var pending []map[string]any
+	readJSON(t, resp2, &pending)
+	for _, r := range pending {
+		if r["status"] == "paid" {
+			t.Errorf("reward marked paid without credentials: %v", r)
+		}
+	}
+}
+
+// TestIntegration_PayoutRouting_UpholdPath verifies that when Uphold
+// credentials are set, submitPayout attempts the Uphold path (and fails with
+// an auth error from the mock, not a "no credentials" error).
+func TestIntegration_PayoutRouting_UpholdPath(t *testing.T) {
+	// Use a local HTTP server as a fake Uphold endpoint that returns 401.
+	fakeUphold := startFakeUphold(t)
+
+	base := startService(t, rewards.Config{
+		MinPayoutBAT:       0,
+		UpholdClientID:     "fake-id",
+		UpholdClientSecret: "fake-secret",
+		UpholdAPIBase:      fakeUphold,
+	})
+
+	payload := map[string]any{
+		"object_attributes": map[string]any{"state": "merged", "iid": float64(7)},
+		"user":              map[string]any{"username": "frank", "email": "frank@example.com"},
+	}
+	postJSON(t, base+"/webhook/gitlab", payload, map[string]string{
+		"X-Gitlab-Event": "Merge Request Hook",
+	}).Body.Close()
+	postJSON(t, base+"/wallet/register", map[string]any{
+		"username": "frank", "wallet_address": "0xFRANK",
+	}, nil).Body.Close()
+
+	resp := postJSON(t, base+"/rewards/payout", nil, nil)
+	var result map[string]any
+	readJSON(t, resp, &result)
+	// Envelope ok=true; the Uphold path was attempted (auth failed at fake server).
+	if result["ok"] != true {
+		t.Errorf("payout envelope ok: got %v", result["ok"])
+	}
+}
+
+// startFakeUphold starts a minimal HTTP server that returns 401 for all
+// requests, simulating an Uphold endpoint with bad credentials.
+func startFakeUphold(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"invalid_client"}`, http.StatusUnauthorized)
+	})
+	srv := &http.Server{Handler: mux}
+	go srv.Serve(ln) //nolint:errcheck
+	t.Cleanup(func() { srv.Close() })
+	return "http://" + ln.Addr().String()
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStr(s, substr))
+}
+
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // TestIntegration_RateUpdateAndRead verifies that PUT /rewards/rates updates

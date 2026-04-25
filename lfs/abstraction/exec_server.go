@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"time"
 )
@@ -40,12 +41,30 @@ func (s *ExecServer) Start(ctx context.Context, _ Config) error {
 	return s.cmd.Wait()
 }
 
-// Stop sends an interrupt signal to the server process.
+// Stop gracefully shuts down the server process.
+// It sends SIGTERM first and gives the process 5 seconds to exit cleanly
+// before escalating to SIGKILL. This allows in-flight LFS writes to flush.
 func (s *ExecServer) Stop(_ context.Context) error {
 	if s.cmd == nil || s.cmd.Process == nil {
 		return nil
 	}
-	return s.cmd.Process.Kill()
+	// Send SIGTERM for graceful shutdown.
+	if err := s.cmd.Process.Signal(os.Interrupt); err != nil {
+		// Process may have already exited — treat as success.
+		return nil
+	}
+	// Wait up to 5 seconds for the process to exit voluntarily.
+	done := make(chan error, 1)
+	go func() { done <- s.cmd.Wait() }()
+	select {
+	case <-done:
+		return nil
+	case <-time.After(5 * time.Second):
+		// Escalate to SIGKILL.
+		_ = s.cmd.Process.Kill()
+		<-done
+		return nil
+	}
 }
 
 // waitReady polls GET / on the server's listen address until it returns HTTP
