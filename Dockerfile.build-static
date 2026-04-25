@@ -1,0 +1,36 @@
+# Stage 1: Build webapp
+FROM docker.io/node:lts-alpine AS webapp
+
+WORKDIR /build/webapp
+COPY webapp/package.json webapp/package-lock.json ./
+RUN npm ci
+COPY webapp/ ./
+RUN npm run build
+
+# Stage 2: Build Go binaries
+FROM docker.io/golang:alpine AS builder
+
+WORKDIR /root
+USER root
+
+RUN apk add musl-dev gcc libtool m4 autoconf g++ make libblkid util-linux-dev git linux-headers mingw-w64-gcc
+
+RUN wget http://musl.cc/aarch64-linux-musl-cross.tgz -O /tmp/aarch64-linux-musl-cross.tgz && \
+    tar --strip-components=1 -C /usr/local -xzf /tmp/aarch64-linux-musl-cross.tgz && \
+    rm /tmp/aarch64-linux-musl-cross.tgz
+
+ADD ./scripts/build-static.sh /build-static.sh
+RUN chmod +x /build-static.sh
+
+ADD . /build/garm
+
+# Copy webapp build output to assets directory
+COPY --from=webapp /build/webapp/build/ /build/garm/webapp/assets/
+
+ARG GARM_REF
+ENV GARM_REF=${GARM_REF}
+RUN /build-static.sh
+
+# Stage 3: Export only the binaries
+FROM scratch AS export
+COPY --from=builder /build/output/ /

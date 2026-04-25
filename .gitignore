@@ -1,0 +1,34 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.DS_Store
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+bin/
+# Dependency directories (remove the comment below to include it)
+# vendor/
+.vscode
+cmd/temp
+build/
+release/
+node_modules/
+.svelte-kit/
+debug.html
+git_push.sh
+webapp/src/lib/api/generated/docs
+.env
+
+# Compiled webapp assets (built during Docker build)
+webapp/assets/_app/
+webapp/assets/assets/
+webapp/assets/index.html
+webapp/assets/*.png
+webapp/build/

@@ -1,0 +1,424 @@
+# NOTE: The purpose of these definitions is to reuse the existing golang
+# types from GARM packages.
+definitions:
+  User:
+    type: object
+    x-go-type:
+        type: User
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  HookInfo:
+    type: object
+    x-go-type:
+        type: HookInfo
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  ControllerInfo:
+    type: object
+    x-go-type:
+        type: ControllerInfo
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  InstallWebhookParams:
+    type: object
+    x-go-type:
+        type: InstallWebhookParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  NewUserParams:
+    type: object
+    x-go-type:
+        type: NewUserParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  PasswordLoginParams:
+    type: object
+    x-go-type:
+        type: PasswordLoginParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  JWTResponse:
+    type: object
+    x-go-type:
+        type: JWTResponse
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  Jobs:
+    type: array
+    x-go-type:
+        type: Jobs
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+    items:
+        $ref: '#/definitions/Job'
+  Job:
+    type: object
+    x-go-type:
+        type: Job
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  Credentials:
+    type: array
+    x-go-type:
+        type: Credentials
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+    items:
+        $ref: '#/definitions/ForgeCredentials'
+  ForgeCredentials:
+    type: object
+    x-go-type:
+        type: ForgeCredentials
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  Providers:
+    type: array
+    x-go-type:
+        type: Providers
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+    items:
+        $ref: '#/definitions/Provider'
+  Provider:
+    type: object
+    x-go-type:
+        type: Provider
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  Instances:
+    type: array
+    x-go-type:
+        type: Instances
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+    items:
+        $ref: '#/definitions/Instance'
+  Instance:
+    type: object
+    x-go-type:
+        type: Instance
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  Pools:
+    type: array
+    x-go-type:
+        type: Pools
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+    items:
+        $ref: '#/definitions/Pool'
+  Pool:
+    type: object
+    x-go-type:
+        type: Pool
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  ScaleSets:
+    type: array
+    x-go-type:
+        type: ScaleSets
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+    items:
+        $ref: '#/definitions/ScaleSet'
+  ScaleSet:
+    type: object
+    x-go-type:
+        type: ScaleSet
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  Repositories:
+    type: array
+    x-go-type:
+        type: Repositories
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+    items:
+        $ref: '#/definitions/Repository'
+  Repository:
+    type: object
+    x-go-type:
+        type: Repository
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  CreateRepoParams:
+    type: object
+    x-go-type:
+        type: CreateRepoParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  Organizations:
+    type: array
+    x-go-type:
+        type: Organizations
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+    items:
+        $ref: '#/definitions/Organization'
+  Organization:
+    type: object
+    x-go-type:
+        type: Organization
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  CreateOrgParams:
+    type: object
+    x-go-type:
+        type: CreateOrgParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  Enterprises:
+    type: array
+    x-go-type:
+        type: Enterprises
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+    items:
+        $ref: '#/definitions/Enterprise'
+  Enterprise:
+    type: object
+    x-go-type:
+        type: Enterprise
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  CreateEnterpriseParams:
+    type: object
+    x-go-type:
+        type: CreateEnterpriseParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  UpdateEntityParams:
+    type: object
+    x-go-type:
+        type: UpdateEntityParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  CreatePoolParams:
+    type: object
+    x-go-type:
+        type: CreatePoolParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  CreateScaleSetParams:
+    type: object
+    x-go-type:
+        type: CreateScaleSetParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  UpdatePoolParams:
+    type: object
+    x-go-type:
+        type: UpdatePoolParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  UpdateScaleSetParams:
+    type: object
+    x-go-type:
+        type: UpdateScaleSetParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  APIErrorResponse:
+    type: object
+    x-go-type:
+        type: APIErrorResponse
+        import:
+            package: github.com/cloudbase/garm/apiserver/params
+            alias: apiserver_params
+  CreateInstanceParams:
+    type: object
+    x-go-type:
+        type: CreateInstanceParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  UpdateGithubEndpointParams:
+    type: object
+    x-go-type:
+        type: UpdateGithubEndpointParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  UpdateGiteaEndpointParams:
+    type: object
+    x-go-type:
+        type: UpdateGiteaEndpointParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  ForgeEndpoint:
+    type: object
+    x-go-type:
+        type: ForgeEndpoint
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  ForgeEndpoints:
+    type: array
+    x-go-type:
+        type: ForgeEndpoints
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+    items:
+        $ref: '#/definitions/ForgeEndpoint'
+  CreateGithubEndpointParams:
+    type: object
+    x-go-type:
+        type: CreateGithubEndpointParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  CreateGiteaEndpointParams:
+    type: object
+    x-go-type:
+        type: CreateGiteaEndpointParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  CreateGithubCredentialsParams:
+    type: object
+    x-go-type:
+        type: CreateGithubCredentialsParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  CreateGiteaCredentialsParams:
+    type: object
+    x-go-type:
+        type: CreateGiteaCredentialsParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  UpdateGithubCredentialsParams:
+    type: object
+    x-go-type:
+        type: UpdateGithubCredentialsParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  UpdateGiteaCredentialsParams:
+    type: object
+    x-go-type:
+        type: UpdateGiteaCredentialsParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  UpdateControllerParams:
+    type: object
+    x-go-type:
+        type: UpdateControllerParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  UpdateTemplateParams:
+    type: object
+    x-go-type:
+        type: UpdateTemplateParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  CreateTemplateParams:
+    type: object
+    x-go-type:
+        type: CreateTemplateParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  Template:
+    type: object
+    x-go-type:
+        type: Template
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  FileObjectPaginatedResponse:
+    type: object
+    x-go-type:
+        type: FileObjectPaginatedResponse
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  FileObject:
+    type: object
+    x-go-type:
+        type: FileObject
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  UpdateFileObjectParams:
+    type: object
+    x-go-type:
+        type: UpdateFileObjectParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  CreateFileObjectParams:
+    type: object
+    x-go-type:
+        type: CreateFileObjectParams
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  Templates:
+    type: array
+    x-go-type:
+        type: Templates
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+    items:
+        $ref: '#/definitions/Template'
+  RestoreTemplateRequest:
+    type: object
+    x-go-type:
+        type: RestoreTemplateRequest
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  GARMAgentToolsPaginatedResponse:
+    type: object
+    x-go-type:
+        type: GARMAgentToolsPaginatedResponse
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
+  GARMAgentTool:
+    type: object
+    x-go-type:
+        type: GARMAgentTool
+        import:
+            package: github.com/cloudbase/garm/params
+            alias: garm_params
