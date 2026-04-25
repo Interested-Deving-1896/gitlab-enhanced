@@ -44,6 +44,14 @@ environments/supervisor         https://github.com/gitpod-io/gitpod.git         
 environments/content-service    https://github.com/gitpod-io/gitpod.git                                                     main
 environments/workspace-images   https://github.com/gitpod-io/workspace-images.git                                           main
 
+# --- CI Runners (Incus-native GitLab runner stack) ---
+# Upstream mirrors: openos-project/upstream-mirrors/{gitlab-incus-runner,garm,garm-provider-incus}
+# Working forks:    openos-project/git-management_deving/{gitlab-incus-runner,garm,garm-provider-incus}
+# Merged into:      ci/runners/ — unified garm-gitlab runner with Incus provider
+ci/runners/gitlab-incus-runner  https://gitlab.com/openos-project/git-management_deving/gitlab-incus-runner.git  main
+ci/runners/garm                 https://gitlab.com/openos-project/git-management_deving/garm.git                  main
+ci/runners/garm-provider-incus  https://gitlab.com/openos-project/git-management_deving/garm-provider-incus.git  main
+
 # --- Runtime ---
 runtime/blincus                 https://gitlab.com/openos-project/incus_deving/blincus.git                                  main
 runtime/k8s-in-incus            https://github.com/Esteban-Cruz/K8s-in-incus.git                                            main
