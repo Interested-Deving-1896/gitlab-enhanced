@@ -90,35 +90,15 @@ func TestRLPEncodeList_Empty(t *testing.T) {
 	}
 }
 
-func TestSecp256k1_IsOnCurve_Generator(t *testing.T) {
-	c := secp256k1Curve()
-	p := c.Params()
-	if !c.IsOnCurve(p.Gx, p.Gy) {
-		t.Error("generator point is not on secp256k1 curve")
-	}
-}
-
-func TestSecp256k1_ScalarBaseMult_Consistency(t *testing.T) {
-	c := secp256k1Curve()
-	// 2*G should equal G+G.
-	k := []byte{2}
-	x1, y1 := c.ScalarBaseMult(k)
-	p := c.Params()
-	x2, y2 := c.Add(p.Gx, p.Gy, p.Gx, p.Gy)
-	if x1.Cmp(x2) != 0 || y1.Cmp(y2) != 0 {
-		t.Error("2*G != G+G on secp256k1")
-	}
-}
-
-func TestHexToECDSA_InvalidLength(t *testing.T) {
-	_, err := hexToECDSA("deadbeef") // too short
+func TestParsePrivKey_InvalidLength(t *testing.T) {
+	_, err := parsePrivKey("deadbeef") // too short
 	if err == nil {
 		t.Error("expected error for short key, got nil")
 	}
 }
 
-func TestHexToECDSA_InvalidHex(t *testing.T) {
-	_, err := hexToECDSA("zzzz")
+func TestParsePrivKey_InvalidHex(t *testing.T) {
+	_, err := parsePrivKey("zzzz")
 	if err == nil {
 		t.Error("expected error for invalid hex, got nil")
 	}

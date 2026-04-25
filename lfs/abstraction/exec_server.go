@@ -16,6 +16,9 @@ type ExecServer struct {
 	listenAddr string
 	args       []string
 	cmd        *exec.Cmd
+	// done is closed by Start when cmd.Wait() returns.
+	// Stop reads from it instead of calling cmd.Wait() again.
+	done chan struct{}
 }
 
 func (s *ExecServer) Name() string { return s.backend }
@@ -24,45 +27,56 @@ func (s *ExecServer) URL() string { return "http://" + s.listenAddr }
 
 // Start launches the server binary and waits up to 30 seconds for it to
 // respond on its listen address. Blocks until ctx is cancelled or the process
-// exits.
+// exits. cmd.Wait() is called exactly once, inside this method.
 func (s *ExecServer) Start(ctx context.Context, _ Config) error {
+	s.done = make(chan struct{})
 	s.cmd = exec.CommandContext(ctx, s.backend, s.args...)
 	if err := s.cmd.Start(); err != nil {
+		close(s.done)
 		return fmt.Errorf("lfs %s: start: %w", s.backend, err)
 	}
 
 	// Wait for the server to become ready.
 	if err := s.waitReady(ctx, 30*time.Second); err != nil {
 		_ = s.cmd.Process.Kill()
+		_ = s.cmd.Wait() // best-effort cleanup after kill
+		close(s.done)
 		return fmt.Errorf("lfs %s: not ready: %w", s.backend, err)
 	}
 
 	// Block until the process exits or ctx is cancelled.
-	return s.cmd.Wait()
+	// cmd.Wait() is called exactly here — Stop() must not call it again.
+	err := s.cmd.Wait()
+	close(s.done)
+	return err
 }
 
 // Stop gracefully shuts down the server process.
 // It sends SIGTERM first and gives the process 5 seconds to exit cleanly
-// before escalating to SIGKILL. This allows in-flight LFS writes to flush.
+// before escalating to SIGKILL. It never calls cmd.Wait() — that is owned
+// by Start() — so there is no double-Wait race.
 func (s *ExecServer) Stop(_ context.Context) error {
 	if s.cmd == nil || s.cmd.Process == nil {
 		return nil
 	}
 	// Send SIGTERM for graceful shutdown.
 	if err := s.cmd.Process.Signal(os.Interrupt); err != nil {
-		// Process may have already exited — treat as success.
+		// Process may have already exited.
+		if s.done != nil {
+			<-s.done
+		}
 		return nil
 	}
-	// Wait up to 5 seconds for the process to exit voluntarily.
-	done := make(chan error, 1)
-	go func() { done <- s.cmd.Wait() }()
+	// Wait for Start's cmd.Wait() to return via the done channel.
+	if s.done == nil {
+		return nil
+	}
 	select {
-	case <-done:
+	case <-s.done:
 		return nil
 	case <-time.After(5 * time.Second):
-		// Escalate to SIGKILL.
 		_ = s.cmd.Process.Kill()
-		<-done
+		<-s.done
 		return nil
 	}
 }
