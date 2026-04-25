@@ -40,29 +40,50 @@ This copies `config.sh`, `prepare.sh`, `run.sh`, and `cleanup.sh` to
 
 ## Runner registration
 
+Obtain a token from **GitLab → Project → Settings → CI/CD → Runners → New project runner**
+(set tags: `incus, self-hosted`), then run on the runner host:
+
 ```bash
-gitlab-runner register \
-  --non-interactive \
-  --url "https://gitlab.com" \
-  --token "YOUR_RUNNER_TOKEN" \
-  --executor custom \
-  --custom-config-exec  /usr/local/lib/gitlab-runner-incus/config.sh \
-  --custom-prepare-exec /usr/local/lib/gitlab-runner-incus/prepare.sh \
-  --custom-run-exec     /usr/local/lib/gitlab-runner-incus/run.sh \
-  --custom-cleanup-exec /usr/local/lib/gitlab-runner-incus/cleanup.sh \
-  --tag-list "incus,self-hosted" \
-  --description "gitlab-enhanced Incus runner"
+sudo gitlab-enhanced runner register --token glrt-xxxxxxxxxxxxxxxxxxxx
 ```
 
-Or copy `config.toml` to `/etc/gitlab-runner/config.toml` and fill in the token:
+This single command:
+1. Verifies `gitlab-runner` and `incus` are installed
+2. Copies the executor scripts to `/usr/local/lib/gitlab-runner-incus/`
+3. Calls `gitlab-runner register` with the correct custom executor flags
+
+Then start the runner:
+
+```bash
+sudo gitlab-runner start
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--token` | *(required)* | Runner authentication token from GitLab |
+| `--url` | `https://gitlab.com` | GitLab instance URL (for self-hosted GitLab) |
+| `--description` | `gitlab-enhanced Incus runner` | Name shown in the GitLab UI |
+| `--tags` | `incus,self-hosted` | Comma-separated job routing tags |
+| `--install` | `true` | Install executor scripts before registering |
+
+### Manual registration (alternative)
+
+If you prefer to manage the executor scripts separately:
+
+```bash
+sudo bash runtime/incus/runner/install.sh
+sudo gitlab-enhanced runner register --token glrt-xxx --install=false
+```
+
+Or use the raw `config.toml`:
 
 ```bash
 sudo cp runtime/incus/runner/config.toml /etc/gitlab-runner/config.toml
 sudo sed -i 's/REPLACE_WITH_RUNNER_TOKEN/YOUR_TOKEN/' /etc/gitlab-runner/config.toml
 sudo gitlab-runner start
 ```
-
-Obtain the token from **GitLab → Project → Settings → CI/CD → Runners → New project runner**.
 
 ## Container image selection
 
