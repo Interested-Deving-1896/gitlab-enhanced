@@ -149,14 +149,36 @@ func (c *Config) validateRewards(ve *ValidationError) {
 		ve.add("rewards.webhook_secret is required when rewards.enabled=true — " +
 			"set GITLAB_ENHANCED_REWARDS_WEBHOOK_SECRET to the token configured in GitLab Admin > System Hooks")
 	}
-	if c.Rewards.WalletAddress == "" && c.Rewards.UpholdClientID == "" {
-		ve.add("rewards: at least one of rewards.wallet_address (non-custodial) or " +
-			"rewards.uphold_client_id (custodial) must be set when rewards.enabled=true")
+
+	custodial := c.Rewards.UpholdClientID != ""
+	nonCustodial := c.Rewards.WalletAddress != ""
+
+	if !custodial && !nonCustodial {
+		ve.add("rewards: at least one of rewards.uphold_client_id (custodial) or " +
+			"rewards.wallet_address (non-custodial ERC-20) must be set when rewards.enabled=true")
 	}
-	if c.Rewards.UpholdClientID != "" && c.Rewards.UpholdClientSecret == "" {
+
+	// Custodial path: Uphold secret must accompany the client ID.
+	if custodial && c.Rewards.UpholdClientSecret == "" {
 		ve.add("rewards.uphold_client_secret is required when rewards.uphold_client_id is set " +
 			"(set GITLAB_ENHANCED_REWARDS_UPHOLD_CLIENT_SECRET)")
 	}
+
+	// Non-custodial path: wallet_address alone is not enough — the service
+	// also needs an RPC endpoint and private key to sign transactions.
+	// Without them every payout attempt will fail silently at runtime.
+	if nonCustodial && !custodial {
+		if c.Rewards.EthRPCURL == "" {
+			ve.add("rewards.eth_rpc_url is required when using non-custodial ERC-20 payouts " +
+				"(rewards.wallet_address is set but rewards.uphold_client_id is not) — " +
+				"set GITLAB_ENHANCED_REWARDS_ETH_RPC_URL to an Ethereum JSON-RPC endpoint")
+		}
+		if c.Rewards.EthPrivateKey == "" {
+			ve.add("rewards.eth_private_key is required when using non-custodial ERC-20 payouts — " +
+				"set GITLAB_ENHANCED_REWARDS_ETH_PRIVATE_KEY (hex-encoded secp256k1 private key)")
+		}
+	}
+
 	if c.Rewards.MinPayoutBAT < 0 {
 		ve.add("rewards.min_payout_bat must be >= 0, got %g", c.Rewards.MinPayoutBAT)
 	}

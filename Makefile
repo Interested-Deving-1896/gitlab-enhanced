@@ -28,17 +28,17 @@ build:
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./cmd/gitlab-enhanced/
 	@echo "Built $(BUILD_DIR)/$(BINARY) ($(VERSION))"
 
-## test: run all Go tests
+## test: run all Go tests (cache disabled to prevent stale results)
 test:
-	$(GO) test -timeout 60s ./...
+	$(GO) test -count=1 -timeout 60s ./...
 
 ## test-race: run tests with the race detector
 test-race:
-	$(GO) test -race -timeout 120s ./...
+	$(GO) test -race -count=1 -timeout 120s ./...
 
 ## test-integration: run integration tests only
 test-integration:
-	$(GO) test -timeout 60s -run 'TestIntegration|TestBWIntegration' ./...
+	$(GO) test -count=1 -timeout 60s -run 'TestIntegration|TestBWIntegration' ./...
 
 ## lint: run all linters (go vet, shellcheck, yamllint)
 lint: vet

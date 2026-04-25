@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"path/filepath"
 	"sync"
@@ -15,19 +16,26 @@ import (
 	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/bandwidth"
 )
 
-// startBandwidthService launches a bandwidth service on a fixed port and
-// returns its base URL. The service is shut down when the test ends.
+// startBandwidthService launches a bandwidth service on an OS-assigned free
+// port and returns its base URL. The service is shut down when the test ends.
 func startBandwidthService(t *testing.T, cfg bandwidth.Config) string {
 	t.Helper()
 	cfg.Enabled = true
 	if cfg.DBPath == "" {
 		cfg.DBPath = filepath.Join(t.TempDir(), "bandwidth.db")
 	}
-	port := 16200 + (len(t.Name()) % 900)
-	cfg.ListenAddr = fmt.Sprintf("127.0.0.1:%d", port)
 	if cfg.UpstreamGitLab == "" {
 		cfg.UpstreamGitLab = "http://127.0.0.1:1" // unreachable — proxy not tested here
 	}
+
+	// Pick a free port via OS assignment.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	cfg.ListenAddr = addr
 
 	svc, err := bandwidth.New(cfg)
 	if err != nil {
@@ -37,27 +45,28 @@ func startBandwidthService(t *testing.T, cfg bandwidth.Config) string {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	ready := make(chan struct{})
+	started := make(chan struct{})
 	go func() {
-		close(ready)
+		close(started)
 		_ = svc.Start(ctx)
 	}()
-	<-ready
+	<-started
 
-	base := "http://" + cfg.ListenAddr
+	base := "http://" + addr
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		resp, err := http.Get(base + "/health")
 		if err == nil && resp.StatusCode == 200 {
 			resp.Body.Close()
-			break
+			return base
 		}
 		if resp != nil {
 			resp.Body.Close()
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(25 * time.Millisecond)
 	}
-	return base
+	t.Fatalf("service at %s did not become ready within 3s", addr)
+	return ""
 }
 
 func postJSONBW(t *testing.T, url string, body any) *http.Response {
@@ -68,6 +77,51 @@ func postJSONBW(t *testing.T, url string, body any) *http.Response {
 		t.Fatalf("POST %s: %v", url, err)
 	}
 	return resp
+}
+
+// TestBWIntegration_Metrics verifies that /metrics returns Prometheus text
+// format with the expected metric names and does not panic.
+func TestBWIntegration_Metrics(t *testing.T) {
+	base := startBandwidthService(t, bandwidth.Config{})
+
+	resp, err := http.Get(base + "/metrics")
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	ct := resp.Header.Get("Content-Type")
+	if len(ct) < 10 || ct[:10] != "text/plain" {
+		t.Errorf("expected text/plain Content-Type, got %q", ct)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+	for _, want := range []string{
+		"gitlab_enhanced_bandwidth_bytes_in",
+		"gitlab_enhanced_bandwidth_bytes_out",
+		"gitlab_enhanced_bandwidth_bytes_saved",
+		"gitlab_enhanced_bandwidth_requests_proxied",
+		"gitlab_enhanced_bandwidth_dedup_hits",
+		"gitlab_enhanced_bandwidth_dedup_bytes_saved",
+		"gitlab_enhanced_bandwidth_artifacts_evicted",
+	} {
+		if !bwContains(text, want) {
+			t.Errorf("metrics output missing %q", want)
+		}
+	}
+}
+
+func bwContains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // TestBWIntegration_Health verifies the /health endpoint.

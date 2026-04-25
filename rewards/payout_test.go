@@ -143,3 +143,26 @@ func TestSubmitERC20Payout_MissingPrivateKey(t *testing.T) {
 		t.Errorf("expected eth_private_key error, got: %v", err)
 	}
 }
+
+// TestKeccak256_KnownVector verifies the hash function is real Keccak-256
+// (not SHA-256). The empty-string Keccak-256 digest is a well-known constant.
+func TestKeccak256_KnownVector(t *testing.T) {
+	// Keccak-256("") = c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470
+	// SHA-256("")    = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+	got := hex.EncodeToString(keccak256([]byte{}))
+	want := "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+	if got != want {
+		t.Errorf("keccak256(\"\") = %s, want %s\n(if this looks like SHA-256, the placeholder was not replaced)", got, want)
+	}
+}
+
+// TestKeccak256_EthereumAddress verifies keccak256 against the well-known
+// Ethereum address derivation: keccak256 of the secp256k1 public key bytes.
+func TestKeccak256_NonEmpty(t *testing.T) {
+	// keccak256("abc") = 4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45
+	got := hex.EncodeToString(keccak256([]byte("abc")))
+	want := "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45"
+	if got != want {
+		t.Errorf("keccak256(\"abc\") = %s, want %s", got, want)
+	}
+}

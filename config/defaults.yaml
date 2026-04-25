@@ -72,6 +72,12 @@ rewards:
   webhook_secret: ""               # must match the secret token set in GitLab Admin > System Hooks; set via GITLAB_ENHANCED_REWARDS_WEBHOOK_SECRET
   db_path: ""                      # SQLite file for persistence; defaults to /var/lib/gitlab-enhanced/rewards.db
   bandwidth_addr: ""               # address of bandwidth service for artifact auto-registration (e.g. 127.0.0.1:6062)
+  # Non-custodial ERC-20 payout (used when uphold_client_id is empty).
+  # Requires a funded Ethereum wallet holding BAT at wallet_address above.
+  eth_rpc_url: ""                  # Ethereum JSON-RPC endpoint; set via GITLAB_ENHANCED_REWARDS_ETH_RPC_URL
+                                   # Examples: https://mainnet.infura.io/v3/<key>  https://eth-mainnet.g.alchemy.com/v2/<key>  http://localhost:8545
+  eth_private_key: ""              # hex-encoded secp256k1 private key of the publisher wallet; ALWAYS set via GITLAB_ENHANCED_REWARDS_ETH_PRIVATE_KEY — never commit to YAML
+  eth_chain_id: 1                  # Ethereum chain ID: 1=mainnet, 11155111=Sepolia testnet; override via GITLAB_ENHANCED_REWARDS_ETH_CHAIN_ID
 
 bandwidth:
   enabled: false                   # set true to start bandwidth proxy

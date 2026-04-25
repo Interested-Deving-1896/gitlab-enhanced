@@ -140,11 +140,44 @@ func TestValidate_RewardsUpholdMissingSecret(t *testing.T) {
 	assertValidationError(t, cfg, "rewards.uphold_client_secret")
 }
 
-func TestValidate_RewardsValid(t *testing.T) {
+func TestValidate_RewardsNonCustodialMissingRPCURL(t *testing.T) {
 	cfg := validBase()
 	cfg.Rewards.Enabled = true
 	cfg.Rewards.WebhookSecret = "secret"
 	cfg.Rewards.WalletAddress = "0xABC"
+	// No UpholdClientID, no EthRPCURL — should fail
+	assertValidationError(t, cfg, "eth_rpc_url")
+}
+
+func TestValidate_RewardsNonCustodialMissingPrivateKey(t *testing.T) {
+	cfg := validBase()
+	cfg.Rewards.Enabled = true
+	cfg.Rewards.WebhookSecret = "secret"
+	cfg.Rewards.WalletAddress = "0xABC"
+	cfg.Rewards.EthRPCURL = "https://mainnet.infura.io/v3/key"
+	// EthPrivateKey missing
+	assertValidationError(t, cfg, "eth_private_key")
+}
+
+func TestValidate_RewardsNonCustodialValid(t *testing.T) {
+	cfg := validBase()
+	cfg.Rewards.Enabled = true
+	cfg.Rewards.WebhookSecret = "secret"
+	cfg.Rewards.WalletAddress = "0xABC"
+	cfg.Rewards.EthRPCURL = "https://mainnet.infura.io/v3/key"
+	cfg.Rewards.EthPrivateKey = "deadbeef"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidate_RewardsValid(t *testing.T) {
+	// Custodial path — wallet_address not required when Uphold is configured.
+	cfg := validBase()
+	cfg.Rewards.Enabled = true
+	cfg.Rewards.WebhookSecret = "secret"
+	cfg.Rewards.UpholdClientID = "client-id"
+	cfg.Rewards.UpholdClientSecret = "client-secret"
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

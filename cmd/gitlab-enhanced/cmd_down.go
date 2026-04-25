@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/spf13/cobra"
 )
@@ -21,7 +25,9 @@ Data volumes are preserved — run 'up' to restart.
 
 Use --with-k8s to also tear down the K8s-in-Incus cluster.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDown(*cfgRoot, withK8s, force)
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			return runDown(ctx, *cfgRoot, withK8s, force)
 		},
 	}
 
@@ -31,7 +37,7 @@ Use --with-k8s to also tear down the K8s-in-Incus cluster.`,
 	return cmd
 }
 
-func runDown(root string, withK8s, force bool) error {
+func runDown(ctx context.Context, root string, withK8s, force bool) error {
 	services := []string{
 		"gitlab-enhanced-gitlab",
 		"gitlab-enhanced-lfs",
@@ -65,7 +71,7 @@ func runDown(root string, withK8s, force bool) error {
 	if withK8s {
 		printSection("Tearing down K8s cluster")
 		k8sDir := filepath.Join(root, "runtime", "k8s-in-incus", "ansible")
-		if err := runAnsible(k8sDir, "playbooks/k8s-cleanup.yml"); err != nil {
+		if err := runAnsible(ctx, k8sDir, "playbooks/k8s-cleanup.yml"); err != nil {
 			printWarn(fmt.Sprintf("K8s cleanup had errors: %v", err))
 		} else {
 			printOK("K8s cluster removed")

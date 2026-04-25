@@ -46,11 +46,11 @@ echo "    binary: dist/gitlab-enhanced-${VERSION}-linux-amd64"
 # Package with nfpm if available
 if command -v nfpm &>/dev/null; then
   echo "==> Packaging with nfpm"
-  NFPM_VERSION="${VERSION}" nfpm package \
+  VERSION="${VERSION}" nfpm package \
     --config "${REPO_ROOT}/packaging/config/nfpm.yaml" \
     --packager deb \
     --target "${DIST}/"
-  NFPM_VERSION="${VERSION}" nfpm package \
+  VERSION="${VERSION}" nfpm package \
     --config "${REPO_ROOT}/packaging/config/nfpm.yaml" \
     --packager rpm \
     --target "${DIST}/"
