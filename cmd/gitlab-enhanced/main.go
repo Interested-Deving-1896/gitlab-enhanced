@@ -46,6 +46,9 @@ Configuration is loaded from (later overrides earlier):
 		newStatusCmd(&cfgRoot),
 		newRewardsCmd(&cfgRoot),
 		newBandwidthCmd(&cfgRoot),
+		newRunnerCmd(&cfgRoot),
+		newBuildCmd(&cfgRoot),
+		newStorageCmd(&cfgRoot),
 	)
 
 	return root

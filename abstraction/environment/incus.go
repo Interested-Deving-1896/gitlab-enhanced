@@ -3,6 +3,7 @@ package environment
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -272,7 +273,10 @@ func (m *IncusManager) Delete(_ context.Context, id string) error {
 	return op.Wait()
 }
 
-// waitReady polls until the container's init system is running.
+// waitReady polls until the container's init system reports "running" or
+// "degraded" (degraded means systemd is up but some non-critical units failed —
+// still safe to proceed). It captures stdout via WaitForWS so the actual
+// systemctl output is checked, not just whether the exec was dispatched.
 func (m *IncusManager) waitReady(ctx context.Context, conn incus.InstanceServer, name string) error {
 	for i := 0; i < 30; i++ {
 		select {
@@ -280,29 +284,45 @@ func (m *IncusManager) waitReady(ctx context.Context, conn incus.InstanceServer,
 			return ctx.Err()
 		default:
 		}
+
+		var stdout strings.Builder
 		op, err := conn.ExecInstance(name, api.InstanceExecPost{
-			Command:   []string{"systemctl", "is-system-running"},
-			WaitForWS: false,
-		}, nil)
+			Command:      []string{"systemctl", "is-system-running"},
+			WaitForWS:    true,
+			RecordOutput: true,
+		}, &incus.InstanceExecArgs{
+			Stdout: &stdout,
+			Stderr: io.Discard,
+		})
 		if err == nil {
 			_ = op.Wait()
-			return nil
+			state := strings.TrimSpace(stdout.String())
+			if state == "running" || state == "degraded" {
+				return nil
+			}
 		}
 		time.Sleep(2 * time.Second)
 	}
 	return fmt.Errorf("environment container did not become ready within 60s")
 }
 
-// cloneRepo clones the repository into /workspace inside the container.
+// cloneRepo clones the repository into /workspace/repo inside the container.
+// Arguments are passed directly to git — no shell is involved, so RepoURL and
+// Branch cannot be used for shell injection regardless of their content.
 func (m *IncusManager) cloneRepo(_ context.Context, conn incus.InstanceServer, name string, spec Spec) error {
-	cloneCmd := fmt.Sprintf("git clone %s /workspace/repo", spec.RepoURL)
+	gitArgs := []string{"git", "clone"}
 	if spec.Branch != "" {
-		cloneCmd = fmt.Sprintf("git clone --branch %s %s /workspace/repo", spec.Branch, spec.RepoURL)
+		gitArgs = append(gitArgs, "--branch", spec.Branch)
 	}
+	gitArgs = append(gitArgs, spec.RepoURL, "/workspace/repo")
+
 	op, err := conn.ExecInstance(name, api.InstanceExecPost{
-		Command:   []string{"bash", "-c", cloneCmd},
-		WaitForWS: false,
-	}, nil)
+		Command:   gitArgs,
+		WaitForWS: true,
+	}, &incus.InstanceExecArgs{
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
 	if err != nil {
 		return err
 	}
@@ -360,11 +380,30 @@ WantedBy=multi-user.target
 	return op.Wait()
 }
 
-// addProxyDevice adds an Incus proxy device that forwards a random host port
-// to the IDE port inside the container. Returns the allocated host port.
+// addProxyDevice adds an Incus proxy device that forwards a host port to the
+// IDE port inside the container. It starts from a deterministic candidate
+// derived from the container name and increments until a port that is not
+// already in use by another environment's proxy device is found.
+// Returns the allocated host port.
 func (m *IncusManager) addProxyDevice(conn incus.InstanceServer, name string) (int, error) {
-	// Use a deterministic port derived from the container name to avoid conflicts
-	hostPort := 10000 + (hashName(name) % 50000)
+	// Collect ports already claimed by other environments' proxy devices.
+	usedPorts, err := m.usedProxyPorts(conn)
+	if err != nil {
+		return 0, fmt.Errorf("listing proxy ports: %w", err)
+	}
+
+	// Find the first free port starting from the deterministic candidate.
+	candidate := 10000 + (hashName(name) % 50000)
+	hostPort := candidate
+	for usedPorts[hostPort] {
+		hostPort++
+		if hostPort > 59999 {
+			hostPort = 10000
+		}
+		if hostPort == candidate {
+			return 0, fmt.Errorf("no free proxy port available in range 10000-59999")
+		}
+	}
 
 	inst, etag, err := conn.GetInstance(name)
 	if err != nil {
@@ -385,6 +424,31 @@ func (m *IncusManager) addProxyDevice(conn incus.InstanceServer, name string) (i
 		return 0, fmt.Errorf("waiting for proxy device: %w", err)
 	}
 	return hostPort, nil
+}
+
+// usedProxyPorts returns the set of host ports already claimed by ide-proxy
+// devices across all managed environment containers.
+func (m *IncusManager) usedProxyPorts(conn incus.InstanceServer) (map[int]bool, error) {
+	instances, err := conn.GetInstances(api.InstanceTypeContainer)
+	if err != nil {
+		return nil, err
+	}
+	used := make(map[int]bool)
+	for _, inst := range instances {
+		if _, ok := inst.Config["user.gitlab-enhanced.env-id"]; !ok {
+			continue
+		}
+		if proxy, ok := inst.Devices["ide-proxy"]; ok {
+			listen := proxy["listen"] // "tcp:0.0.0.0:<port>"
+			if idx := strings.LastIndex(listen, ":"); idx >= 0 {
+				var port int
+				if _, err := fmt.Sscanf(listen[idx+1:], "%d", &port); err == nil {
+					used[port] = true
+				}
+			}
+		}
+	}
+	return used, nil
 }
 
 // instanceToEnv converts an Incus instance to an Environment.
