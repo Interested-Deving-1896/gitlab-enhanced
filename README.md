@@ -38,6 +38,35 @@ gitlab-enhanced/
 ./deploy/local/bootstrap.sh
 ```
 
+## Self-hosted CI Runner
+
+To route CI jobs to a local Incus runner instead of GitLab shared runners:
+
+1. On a Linux host with Incus installed, get a runner token from  
+   **GitLab → Project → Settings → CI/CD → Runners → New project runner**  
+   (set tags: `incus, self-hosted`)
+
+2. Register in one command:
+   ```bash
+   sudo gitlab-enhanced runner register --token glrt-xxxxxxxxxxxxxxxxxxxx
+   ```
+   This installs the executor scripts and calls `gitlab-runner register` with the
+   correct custom executor flags. See [`runtime/incus/runner/README.md`](runtime/incus/runner/README.md)
+   for options and troubleshooting.
+
+3. Start the runner:
+   ```bash
+   sudo gitlab-runner start
+   ```
+
+4. Optionally pre-bake the CI image for faster cold starts:
+   ```bash
+   bash runtime/incus/images/build-ci-base.sh
+   ```
+
+Once the runner is online, the `image:rebuild-ci-base` and `image:rebuild-workspace`
+CI jobs will route to it automatically — no changes to `.gitlab-ci.yml` needed.
+
 ## Source Strategy
 
 | Type | Used for | Sync upstream |
