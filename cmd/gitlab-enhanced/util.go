@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/abstraction/config"
@@ -67,17 +68,58 @@ func runCmd(name string, args ...string) error {
 }
 
 // runCmdContext runs a command attached to the terminal, forwarding stdin/stdout/stderr.
-// The child process receives SIGTERM when ctx is cancelled, giving it a chance
-// to flush in-flight work before the parent exits.
+//
+// Graceful shutdown on context cancellation:
+//  1. The child is placed in its own process group (Setpgid=true) so that
+//     signals sent to the group reach all child processes (e.g. Ansible forks).
+//  2. When ctx is cancelled, SIGTERM is sent to the entire process group.
+//  3. After a 5-second grace period, SIGKILL is sent if the process has not exited.
+//
+// This is necessary because exec.CommandContext sends SIGKILL directly to the
+// child PID on cancellation, which does not propagate to grandchildren and
+// gives the process no opportunity to clean up.
 func runCmdContext(ctx context.Context, name string, args ...string) error {
-	cmd := exec.CommandContext(ctx, name, args...)
+	// Do not use exec.CommandContext — we manage cancellation ourselves so we
+	// can send SIGTERM to the process group rather than SIGKILL to the PID.
+	cmd := exec.Command(name, args...) //nolint:gosec
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	// exec.CommandContext sends SIGKILL on cancellation by default.
-	// Override to SIGTERM so the child can flush gracefully.
-	cmd.WaitDelay = 5 * time.Second
-	return cmd.Run()
+	// Place the child in a new process group so kill(-pgid) reaches all forks.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	// Wait for either the process to finish or the context to be cancelled.
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	select {
+	case err := <-done:
+		return err
+
+	case <-ctx.Done():
+		// Send SIGTERM to the entire process group (negative PID = group).
+		pgid := cmd.Process.Pid
+		_ = syscall.Kill(-pgid, syscall.SIGTERM)
+
+		// Give the process group 5 seconds to exit cleanly.
+		select {
+		case err := <-done:
+			if err != nil && ctx.Err() != nil {
+				// Cancelled by the user — treat as a clean exit.
+				return nil
+			}
+			return err
+		case <-time.After(5 * time.Second):
+			// Escalate to SIGKILL.
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+			<-done
+			return nil
+		}
+	}
 }
 
 // runCmdSilent runs a command and returns its combined output.
