@@ -21,6 +21,16 @@ type ExecServer struct {
 	done chan struct{}
 }
 
+// NewExecServer constructs an ExecServer for the given binary, listen address,
+// and argument list. The binary must be in PATH when Start is called.
+func NewExecServer(backend, listenAddr string, args []string) *ExecServer {
+	return &ExecServer{
+		backend:    backend,
+		listenAddr: listenAddr,
+		args:       args,
+	}
+}
+
 func (s *ExecServer) Name() string { return s.backend }
 
 func (s *ExecServer) URL() string { return "http://" + s.listenAddr }

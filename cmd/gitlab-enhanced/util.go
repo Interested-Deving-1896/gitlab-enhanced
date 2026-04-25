@@ -71,16 +71,6 @@ func runCmdSilent(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// buildCmd constructs an exec.Cmd with stdout/stderr wired to the terminal.
-// Use this when you need to set Cmd.Dir or other fields before running.
-func buildCmd(name string, args ...string) *exec.Cmd {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	return cmd
-}
-
 // runCmdWithFileStdin runs name with args, piping the contents of filePath to
 // the command's stdin. This replaces shell constructs like "cmd arg < file"
 // without invoking a shell, eliminating any risk of shell injection from

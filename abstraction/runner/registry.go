@@ -22,7 +22,7 @@ func FromConfig(cfg *config.Config) (Runner, error) {
 		}
 		r := NewBlacksmithRunner(cfg.Runner.Org, cfg.Runner.Token)
 		if cfg.Runner.BlacksmithAPIURL != "" {
-			r.WithAPIURL(cfg.Runner.BlacksmithAPIURL)
+			r = r.WithAPIURL(cfg.Runner.BlacksmithAPIURL)
 		}
 		return r, nil
 
