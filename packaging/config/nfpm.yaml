@@ -15,6 +15,14 @@ contents:
     file_info:
       mode: 0755
 
+  # bdfs-pin-helper: called by bdfs_daemon after workspace demote to pin
+  # the resulting DwarFS archive to IPFS via the Kubo HTTP API.
+  # Built by the build:pin-helper CI job from tools/bdfs-pin-helper/.
+  - src: tools/bdfs-pin-helper/bdfs-pin-helper
+    dst: /usr/local/bin/bdfs-pin-helper
+    file_info:
+      mode: 0755
+
   - src: config/defaults.yaml
     dst: /etc/gitlab-enhanced/defaults.yaml
     type: config|noreplace
@@ -74,9 +82,16 @@ overrides:
     recommends:
       - terraform
       - skopeo
+      - btrfs-progs
+      - fuse3
+      - fuse-overlayfs
   rpm:
     depends:
       - incus
       - ansible
       - git
       - git-lfs
+    recommends:
+      - btrfs-progs
+      - fuse3
+      - fuse-overlayfs
