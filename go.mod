@@ -6,11 +6,14 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
 	github.com/lxc/incus/v6 v6.0.4
 	github.com/spf13/cobra v1.9.1
+	gitlab.com/openos-project/git-management_deving/gitlab-enhanced/ipfs/dwarfs-pin v0.0.0
 	gocloud.dev v0.45.0
 	golang.org/x/crypto v0.50.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.34.5
 )
+
+replace gitlab.com/openos-project/git-management_deving/gitlab-enhanced/ipfs/dwarfs-pin => ./ipfs/dwarfs-pin
 
 require (
 	cel.dev/expr v0.25.1 // indirect
