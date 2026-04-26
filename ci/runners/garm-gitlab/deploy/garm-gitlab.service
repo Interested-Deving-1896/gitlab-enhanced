@@ -1,0 +1,37 @@
+[Unit]
+Description=garm-gitlab — Incus runner pool manager for GitLab CI
+Documentation=https://gitlab.com/openos-project/git-management_deving/gitlab-enhanced/-/tree/main/ci/runners/garm-gitlab
+After=network-online.target incus.socket
+Wants=network-online.target
+Requires=incus.socket
+
+[Service]
+Type=simple
+User=garm-gitlab
+Group=garm-gitlab
+
+ExecStart=/usr/local/bin/garm-gitlab -config /etc/garm-gitlab/config.toml
+
+# Restart on failure with a short back-off.
+Restart=on-failure
+RestartSec=5s
+
+# Give the process time to drain in-flight webhook requests on shutdown.
+TimeoutStopSec=30s
+
+# Logging — journal captures stdout/stderr.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=garm-gitlab
+
+# Hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/garm-gitlab
+# Incus socket access is via the incus group; the service user must be a member.
+SupplementaryGroups=incus
+
+[Install]
+WantedBy=multi-user.target

@@ -96,6 +96,10 @@ yamllint:
         -path './.git' \
         -o -path './vendor' \
         -o -path './node_modules' \
+        -o -name 'vendor' \
+        -o -name '.github' \
+        -o -path './ci/runners/garm' \
+        -o -path './ci/runners/garm-provider-incus' \
         -o -path './environments/workspace-images' \
         -o -path './environments/supervisor' \
         -o -path './environments/content-service' \
