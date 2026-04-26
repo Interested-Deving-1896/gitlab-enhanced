@@ -124,6 +124,24 @@ yamllint:
 
 # ── Build stage ───────────────────────────────────────────────────────────────
 
+# garm-gitlab is a separate Go module under ci/runners/garm-gitlab/.
+# This job runs go mod tidy to generate/update go.sum, then vets and builds
+# the binary. go.sum is uploaded as an artifact so it can be committed back
+# when it changes (run the job manually and commit the artifact).
+garm-gitlab:build:
+  extends: .go-base
+  stage: build
+  script:
+    - cd ci/runners/garm-gitlab
+    - go mod tidy
+    - go vet ./...
+    - CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /tmp/garm-gitlab ./cmd/garm-gitlab/
+    - echo "Build OK"
+  artifacts:
+    paths:
+      - ci/runners/garm-gitlab/go.sum
+    expire_in: 1 week
+
 go:build:
   extends: .go-base
   stage: build

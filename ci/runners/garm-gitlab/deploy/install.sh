@@ -25,9 +25,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 CONFIG_ONLY=false
+TUNNEL=false
+TUNNEL_DOMAIN=""
+REGISTER_WEBHOOK=false
+GITLAB_URL=""
+GITLAB_TOKEN=""
+WEBHOOK_SECRET=""
+WEBHOOK_PROJECT=""   # e.g. "mygroup/myproject" or "mygroup" for group-level
+
 for arg in "$@"; do
     case "${arg}" in
-        --config-only) CONFIG_ONLY=true ;;
+        --config-only)        CONFIG_ONLY=true ;;
+        --tunnel)             TUNNEL=true ;;
+        --tunnel-domain=*)    TUNNEL_DOMAIN="${arg#*=}" ;;
+        --register-webhook)   REGISTER_WEBHOOK=true ;;
+        --gitlab-url=*)       GITLAB_URL="${arg#*=}" ;;
+        --gitlab-token=*)     GITLAB_TOKEN="${arg#*=}" ;;
+        --webhook-secret=*)   WEBHOOK_SECRET="${arg#*=}" ;;
+        --webhook-project=*)  WEBHOOK_PROJECT="${arg#*=}" ;;
         *) echo "Unknown argument: ${arg}" >&2; exit 1 ;;
     esac
 done
@@ -171,6 +186,104 @@ enable_service() {
     systemctl enable --now garm-gitlab.service
 }
 
+# ── Cloudflared tunnel ────────────────────────────────────────────────────────
+
+install_cloudflared() {
+    if command -v cloudflared &>/dev/null; then
+        info "cloudflared already installed: $(cloudflared --version)"
+        return
+    fi
+
+    info "Installing cloudflared..."
+    curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+        | gpg --dearmor > /usr/share/keyrings/cloudflare-main.gpg
+    echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] \
+https://pkg.cloudflare.com/cloudflared bookworm main" \
+        > /etc/apt/sources.list.d/cloudflared.list
+    apt-get update -qq
+    apt-get install -y cloudflared
+    info "cloudflared installed"
+}
+
+setup_tunnel() {
+    if [ -z "${TUNNEL_DOMAIN}" ]; then
+        error "--tunnel-domain=<hostname> is required with --tunnel"
+    fi
+
+    install_cloudflared
+
+    info "Setting up cloudflared tunnel for ${TUNNEL_DOMAIN}..."
+    info "You will be prompted to authenticate with Cloudflare."
+    cloudflared tunnel login
+    cloudflared tunnel create garm-gitlab || true
+    cloudflared tunnel route dns garm-gitlab "${TUNNEL_DOMAIN}" || true
+
+    TUNNEL_ID=$(cloudflared tunnel list --output json 2>/dev/null \
+        | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+
+    mkdir -p /etc/cloudflared
+    cat > /etc/cloudflared/config.yml << EOF
+tunnel: garm-gitlab
+credentials-file: /root/.cloudflared/${TUNNEL_ID}.json
+ingress:
+  - hostname: ${TUNNEL_DOMAIN}
+    service: http://localhost:8080
+  - service: http_status:404
+EOF
+
+    cloudflared service install
+    systemctl enable --now cloudflared
+
+    info "Tunnel active: https://${TUNNEL_DOMAIN}/webhook"
+    WEBHOOK_URL="https://${TUNNEL_DOMAIN}/webhook"
+}
+
+# ── GitLab webhook registration ───────────────────────────────────────────────
+
+register_webhook() {
+    local webhook_url="${1}"
+
+    if [ -z "${GITLAB_URL}" ] || [ -z "${GITLAB_TOKEN}" ] || \
+       [ -z "${WEBHOOK_SECRET}" ] || [ -z "${WEBHOOK_PROJECT}" ]; then
+        error "--register-webhook requires --gitlab-url, --gitlab-token, --webhook-secret, --webhook-project"
+    fi
+
+    # URL-encode the project path (replace / with %2F)
+    local encoded_project
+    encoded_project=$(printf '%s' "${WEBHOOK_PROJECT}" | sed 's|/|%2F|g')
+
+    # Detect group vs project by checking if path has a slash
+    local api_path
+    if echo "${WEBHOOK_PROJECT}" | grep -q '/'; then
+        api_path="projects/${encoded_project}/hooks"
+    else
+        api_path="groups/${encoded_project}/hooks"
+    fi
+
+    info "Registering webhook at ${GITLAB_URL} for ${WEBHOOK_PROJECT}..."
+
+    HTTP_STATUS=$(curl -s -o /tmp/webhook-response.json -w "%{http_code}" \
+        -X POST \
+        -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+        -H "Content-Type: application/json" \
+        "${GITLAB_URL}/api/v4/${api_path}" \
+        -d "{
+            \"url\": \"${webhook_url}\",
+            \"token\": \"${WEBHOOK_SECRET}\",
+            \"job_events\": true,
+            \"enable_ssl_verification\": true
+        }")
+
+    if [ "${HTTP_STATUS}" = "201" ]; then
+        info "Webhook registered successfully"
+    else
+        warn "Webhook registration returned HTTP ${HTTP_STATUS}:"
+        cat /tmp/webhook-response.json >&2
+        warn "Register the webhook manually in GitLab Settings → Webhooks"
+    fi
+    rm -f /tmp/webhook-response.json
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 require_root
@@ -186,6 +299,13 @@ create_directories
 write_example_config
 install_systemd_unit
 
+WEBHOOK_URL=""
+
+if [ "${TUNNEL}" = "true" ]; then
+    setup_tunnel
+    # WEBHOOK_URL is set inside setup_tunnel
+fi
+
 if [ -f "${CONFIG_DIR}/config.toml" ]; then
     enable_service
     info "garm-gitlab installed and started."
@@ -194,4 +314,23 @@ else
     warn "No config.toml found at ${CONFIG_DIR}/config.toml"
     warn "Copy ${CONFIG_DIR}/config.toml.example to ${CONFIG_DIR}/config.toml,"
     warn "fill in your values, then run: systemctl enable --now garm-gitlab"
+fi
+
+if [ "${REGISTER_WEBHOOK}" = "true" ]; then
+    if [ -z "${WEBHOOK_URL}" ]; then
+        error "--register-webhook requires --tunnel (to auto-detect URL) or set WEBHOOK_URL manually"
+    fi
+    register_webhook "${WEBHOOK_URL}"
+fi
+
+info ""
+info "Next steps:"
+info "  1. Edit ${CONFIG_DIR}/config.toml"
+info "  2. systemctl restart garm-gitlab"
+if [ -n "${WEBHOOK_URL}" ]; then
+    info "  3. Webhook already registered at ${WEBHOOK_URL}"
+else
+    info "  3. Register webhook in GitLab → Settings → Webhooks"
+    info "     URL: http://<this-host>:8080/webhook"
+    info "     See deploy/SETUP.md for cloudflared tunnel instructions"
 fi

@@ -24,6 +24,7 @@ import (
 	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/ci/runners/garm-gitlab/internal/gitlab"
 	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/ci/runners/garm-gitlab/internal/pool"
 	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/ci/runners/garm-gitlab/internal/provider"
+	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/ci/runners/garm-gitlab/internal/store"
 )
 
 func main() {
@@ -34,8 +35,9 @@ func main() {
 }
 
 func run() error {
-	cfgPath := flag.String("config", "/etc/garm-gitlab/config.toml", "path to TOML config file")
-	logLevel := flag.String("log-level", "info", "log level: debug, info, warn, error")
+	cfgPath  := flag.String("config",   "/etc/garm-gitlab/config.toml",      "path to TOML config file")
+	logLevel := flag.String("log-level", "info",                              "log level: debug, info, warn, error")
+	storePath := flag.String("store",   "/var/lib/garm-gitlab/state.db",     "path to SQLite state database")
 	flag.Parse()
 
 	log := logrus.New()
@@ -62,6 +64,15 @@ func run() error {
 
 	log.Info("connected to Incus daemon")
 
+	// SQLite state store — persists instance state across restarts.
+	st, err := store.Open(*storePath)
+	if err != nil {
+		return fmt.Errorf("open state store: %w", err)
+	}
+	defer st.Close()
+
+	log.WithField("path", *storePath).Info("state store opened")
+
 	// GitLab API client (for runner registration/deregistration).
 	gitlabClient := gitlab.NewClient(cfg.GitLab.URL, cfg.GitLab.Token, log)
 
@@ -69,7 +80,7 @@ func run() error {
 	eventCh := make(chan gitlab.JobEvent, 64)
 
 	// Pool manager.
-	mgr, err := pool.NewManager(cfg.Pools, gitlabClient, incusProv, eventCh, log)
+	mgr, err := pool.NewManager(cfg.Pools, gitlabClient, incusProv, st, eventCh, log)
 	if err != nil {
 		return fmt.Errorf("create pool manager: %w", err)
 	}
