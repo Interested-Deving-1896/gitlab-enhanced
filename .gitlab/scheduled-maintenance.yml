@@ -1,0 +1,162 @@
+# Scheduled maintenance pipeline — storage housekeeping.
+#
+# This file is NOT included in the main .gitlab-ci.yml pipeline.
+# It is intended to be run via a GitLab scheduled pipeline:
+#
+#   Settings → CI/CD → Schedules → New schedule
+#     Description : Weekly storage maintenance
+#     Interval    : 0 2 * * 0   (every Sunday at 02:00 UTC)
+#     Branch      : main
+#     Variables   : MAINTENANCE=true
+#
+# The workflow rule below ensures these jobs only run when triggered by
+# the schedule (MAINTENANCE=true), never on normal pushes or MRs.
+#
+# To run manually:
+#   GitLab UI → Pipelines → Run pipeline → set MAINTENANCE=true
+
+workflow:
+  rules:
+    - if: $MAINTENANCE == "true"
+
+stages:
+  - prune
+  - report
+
+# ── LFS prune ─────────────────────────────────────────────────────────────────
+# Removes LFS objects that are no longer referenced by any branch or tag.
+# git lfs prune --verify-remote only removes objects that are confirmed
+# present on the remote, so it is safe to run without a local LFS store.
+
+lfs:prune:
+  stage: prune
+  image: alpine:3.19
+  before_script:
+    - apk add --no-cache git git-lfs
+    - git lfs install
+  script:
+    - |
+      echo "LFS objects before prune:"
+      git lfs ls-files --all | wc -l || true
+      git lfs prune --verify-remote --verbose 2>&1 || true
+      echo "LFS prune complete"
+  rules:
+    - if: $MAINTENANCE == "true"
+
+# ── Expired artifact cleanup ──────────────────────────────────────────────────
+# GitLab expires artifacts lazily — they are marked expired but not deleted
+# until the next cleanup run. This job calls the bulk expiry API to force
+# immediate deletion of all artifacts past their expiry date, freeing storage
+# without waiting for GitLab's background worker.
+
+artifacts:expire:
+  stage: prune
+  image: alpine:3.19
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - |
+      echo "Triggering bulk artifact expiry..."
+      HTTP=$(curl -s -o /tmp/expire-resp.json -w "%{http_code}" \
+        -X POST \
+        -H "PRIVATE-TOKEN: ${GITLAB_MAINTENANCE_TOKEN}" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/artifacts")
+      echo "Response: $(cat /tmp/expire-resp.json)"
+      if [ "${HTTP}" = "200" ] || [ "${HTTP}" = "202" ]; then
+        echo "Artifact expiry triggered successfully (HTTP ${HTTP})"
+      else
+        echo "WARNING: unexpected HTTP ${HTTP} — artifacts may not have been expired"
+      fi
+  rules:
+    - if: $MAINTENANCE == "true"
+      # Requires a project access token with developer+ role stored as
+      # CI/CD variable GITLAB_MAINTENANCE_TOKEN (masked, not protected).
+
+# ── Package registry cleanup ──────────────────────────────────────────────────
+# Deletes package versions older than 90 days from the generic packages
+# registry, keeping the 5 most recent versions of each package regardless
+# of age. Release assets are linked by URL so deleting old package versions
+# does not break existing release download links.
+
+packages:cleanup:
+  stage: prune
+  image: alpine:3.19
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - |
+      set -euo pipefail
+      KEEP=5
+      CUTOFF=$(date -u -d "90 days ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+               || date -u -v-90d +%Y-%m-%dT%H:%M:%SZ)  # GNU / BSD date
+
+      echo "Cleaning packages older than ${CUTOFF}, keeping newest ${KEEP} per package..."
+
+      # List all package names
+      PACKAGES=$(curl -s \
+        -H "PRIVATE-TOKEN: ${GITLAB_MAINTENANCE_TOKEN}" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages?per_page=100" \
+        | jq -r '.[].name' | sort -u)
+
+      for PKG in ${PACKAGES}; do
+        echo "Processing package: ${PKG}"
+
+        # Get all versions sorted newest-first
+        VERSIONS=$(curl -s \
+          -H "PRIVATE-TOKEN: ${GITLAB_MAINTENANCE_TOKEN}" \
+          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages?package_name=${PKG}&order_by=created_at&sort=desc&per_page=100" \
+          | jq -r '.[] | "\(.id) \(.created_at)"')
+
+        COUNT=0
+        while IFS= read -r line; do
+          COUNT=$((COUNT + 1))
+          PKG_ID=$(echo "${line}" | awk '{print $1}')
+          PKG_DATE=$(echo "${line}" | awk '{print $2}')
+
+          if [ "${COUNT}" -le "${KEEP}" ]; then
+            echo "  Keeping ${PKG_ID} (${PKG_DATE}) — within newest ${KEEP}"
+            continue
+          fi
+
+          if [[ "${PKG_DATE}" < "${CUTOFF}" ]]; then
+            echo "  Deleting ${PKG_ID} (${PKG_DATE}) — older than 90 days"
+            curl -s -X DELETE \
+              -H "PRIVATE-TOKEN: ${GITLAB_MAINTENANCE_TOKEN}" \
+              "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/${PKG_ID}" \
+              -o /dev/null
+          else
+            echo "  Keeping ${PKG_ID} (${PKG_DATE}) — within 90 days"
+          fi
+        done <<< "${VERSIONS}"
+      done
+
+      echo "Package cleanup complete"
+  rules:
+    - if: $MAINTENANCE == "true"
+
+# ── Storage report ────────────────────────────────────────────────────────────
+# Prints a storage summary after cleanup so the result is visible in the
+# pipeline log without needing to navigate to project settings.
+
+storage:report:
+  stage: report
+  image: alpine:3.19
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - |
+      echo "=== Storage report ==="
+      curl -s \
+        -H "PRIVATE-TOKEN: ${GITLAB_MAINTENANCE_TOKEN}" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}" \
+        | jq '{
+            statistics: .statistics | {
+              storage_size,
+              lfs_objects_size,
+              job_artifacts_size,
+              packages_size,
+              repository_size
+            }
+          }' || echo "Could not fetch statistics (requires maintainer role)"
+  rules:
+    - if: $MAINTENANCE == "true"
