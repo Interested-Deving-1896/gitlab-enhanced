@@ -19,6 +19,13 @@ workflow:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH
 
+# Global default: any job that doesn't set its own expire_in gets 3 days.
+# This prevents artifacts from accumulating indefinitely if a new job is
+# added without an explicit expiry.
+default:
+  artifacts:
+    expire_in: 3 days
+
 stages:
   - secret-scan
   - lint
@@ -140,7 +147,7 @@ garm-gitlab:build:
   artifacts:
     paths:
       - ci/runners/garm-gitlab/go.sum
-    expire_in: 1 week
+    expire_in: 3 days
 
 go:build:
   extends: .go-base
@@ -161,7 +168,7 @@ go:build:
   artifacts:
     paths:
       - bin/gitlab-enhanced
-    expire_in: 1 week
+    expire_in: 3 days
 
 # ── Package stage ─────────────────────────────────────────────────────────────
 # Builds .deb and .rpm packages using nfpm.
@@ -212,7 +219,9 @@ package:nfpm:
     paths:
       - dist/*.deb
       - dist/*.rpm
-    expire_in: 4 weeks
+    # Packages are uploaded to the generic packages registry by release:upload-packages.
+    # The artifact copy is only needed until that job completes.
+    expire_in: 1 day
 
 # ── Image stage ───────────────────────────────────────────────────────────────
 # Rebuilds the pre-baked CI base image on the self-hosted Incus runner.
@@ -292,7 +301,7 @@ go:test:
   artifacts:
     paths:
       - coverage.out
-    expire_in: 1 week
+    expire_in: 3 days
   script:
     - go test -race -v -count=1 -coverprofile=coverage.out ./... 2>&1 | tee test-output.txt
     - go tool cover -func=coverage.out | tail -1
@@ -360,7 +369,7 @@ build:pin-helper:
     - go vet ./tools/bdfs-pin-helper/
   artifacts:
     paths: [bdfs-pin-helper]
-    expire_in: 1 week
+    expire_in: 3 days
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH'
