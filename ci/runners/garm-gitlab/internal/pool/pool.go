@@ -24,6 +24,7 @@ import (
 	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/ci/runners/garm-gitlab/internal/config"
 	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/ci/runners/garm-gitlab/internal/gitlab"
 	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/ci/runners/garm-gitlab/internal/provider"
+	"gitlab.com/openos-project/git-management_deving/gitlab-enhanced/ci/runners/garm-gitlab/internal/store"
 )
 
 // Instance represents a single Incus runner instance managed by the pool.
@@ -42,6 +43,7 @@ type Pool struct {
 	cfg      config.PoolConfig
 	gitlab   *gitlab.Client
 	provider provider.IncusProvider
+	store    *store.Store
 	log      *logrus.Entry
 
 	mu        sync.Mutex
@@ -52,21 +54,25 @@ type Pool struct {
 type Manager struct {
 	pools   map[string]*Pool // keyed by pool ID
 	eventCh <-chan gitlab.JobEvent
+	store   *store.Store
 	log     *logrus.Logger
 	wg      sync.WaitGroup
 }
 
 // NewManager creates a pool manager. cfg contains all pool definitions.
+// st is the shared SQLite store used to persist instance state across restarts.
 func NewManager(
 	cfg []config.PoolConfig,
 	gitlabClient *gitlab.Client,
 	prov provider.IncusProvider,
+	st *store.Store,
 	eventCh <-chan gitlab.JobEvent,
 	log *logrus.Logger,
 ) (*Manager, error) {
 	m := &Manager{
 		pools:   make(map[string]*Pool),
 		eventCh: eventCh,
+		store:   st,
 		log:     log,
 	}
 
@@ -75,13 +81,44 @@ func NewManager(
 			cfg:       pc,
 			gitlab:    gitlabClient,
 			provider:  prov,
+			store:     st,
 			log:       log.WithField("pool", pc.ID),
 			instances: make(map[string]*Instance),
 		}
+
+		// Restore instances that were running before the last restart.
+		if err := p.loadFromStore(); err != nil {
+			return nil, fmt.Errorf("pool %s: load from store: %w", pc.ID, err)
+		}
+
 		m.pools[pc.ID] = p
 	}
 
 	return m, nil
+}
+
+// loadFromStore populates the pool's in-memory instance map from the SQLite store.
+// Called once at startup so the manager can resume managing pre-existing instances.
+func (p *Pool) loadFromStore() error {
+	instances, err := p.store.ListByPool(p.cfg.ID)
+	if err != nil {
+		return err
+	}
+	for _, si := range instances {
+		p.instances[si.ID] = &Instance{
+			ID:          si.ID,
+			RunnerID:    si.RunnerID,
+			RunnerToken: si.RunnerToken,
+			PoolID:      si.PoolID,
+			CreatedAt:   si.CreatedAt,
+			LastJobAt:   si.LastJobAt,
+			Status:      si.Status,
+		}
+	}
+	if len(instances) > 0 {
+		p.log.WithField("count", len(instances)).Info("restored instances from store")
+	}
+	return nil
 }
 
 // Run starts the manager event loop. Blocks until ctx is cancelled.
@@ -222,15 +259,32 @@ func (p *Pool) createInstance(ctx context.Context) error {
 		return fmt.Errorf("start gitlab-runner in %s: %w", instanceID, err)
 	}
 
-	p.mu.Lock()
-	p.instances[instanceID] = &Instance{
+	inst := &Instance{
 		ID:          instanceID,
 		RunnerID:    info.ID,
 		RunnerToken: info.Token,
 		PoolID:      p.cfg.ID,
 		CreatedAt:   time.Now(),
+		LastJobAt:   time.Time{},
 		Status:      "idle",
 	}
+
+	// Persist before updating in-memory map so a crash here leaves the store
+	// as the source of truth.
+	if err := p.store.SaveInstance(store.Instance{
+		ID:          inst.ID,
+		RunnerID:    inst.RunnerID,
+		RunnerToken: inst.RunnerToken,
+		PoolID:      inst.PoolID,
+		CreatedAt:   inst.CreatedAt,
+		LastJobAt:   inst.LastJobAt,
+		Status:      inst.Status,
+	}); err != nil {
+		p.log.WithError(err).Warn("failed to persist instance to store — continuing")
+	}
+
+	p.mu.Lock()
+	p.instances[instanceID] = inst
 	p.mu.Unlock()
 
 	p.log.WithFields(logrus.Fields{
@@ -311,6 +365,11 @@ func (p *Pool) destroyInstance(ctx context.Context, inst *Instance) error {
 
 	if err := p.provider.DeleteInstance(ctx, inst.ID); err != nil {
 		return fmt.Errorf("delete instance %s: %w", inst.ID, err)
+	}
+
+	// Remove from store before removing from memory.
+	if err := p.store.DeleteInstance(inst.ID); err != nil {
+		p.log.WithError(err).Warn("failed to remove instance from store")
 	}
 
 	p.mu.Lock()

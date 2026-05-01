@@ -10,7 +10,9 @@ Type=simple
 User=garm-gitlab
 Group=garm-gitlab
 
-ExecStart=/usr/local/bin/garm-gitlab -config /etc/garm-gitlab/config.toml
+ExecStart=/usr/local/bin/garm-gitlab \
+    -config /etc/garm-gitlab/config.toml \
+    -store  /var/lib/garm-gitlab/state.db
 
 # Restart on failure with a short back-off.
 Restart=on-failure
