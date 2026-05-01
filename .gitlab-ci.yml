@@ -124,6 +124,24 @@ yamllint:
 
 # ── Build stage ───────────────────────────────────────────────────────────────
 
+# garm-gitlab is a separate Go module under ci/runners/garm-gitlab/.
+# This job runs go mod tidy to generate/update go.sum, then vets and builds
+# the binary. go.sum is uploaded as an artifact so it can be committed back
+# when it changes (run the job manually and commit the artifact).
+garm-gitlab:build:
+  extends: .go-base
+  stage: build
+  script:
+    - cd ci/runners/garm-gitlab
+    - go mod tidy
+    - go vet ./...
+    - CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /tmp/garm-gitlab ./cmd/garm-gitlab/
+    - echo "Build OK"
+  artifacts:
+    paths:
+      - ci/runners/garm-gitlab/go.sum
+    expire_in: 1 week
+
 go:build:
   extends: .go-base
   stage: build
@@ -441,30 +459,24 @@ release:create:
       ASSETS="${ASSETS}{\"name\":\"bdfs-pin-helper (Linux amd64)\",\"url\":\"${REGISTRY}/bdfs-pin-helper-linux-amd64\",\"link_type\":\"other\"}"
       ASSETS="${ASSETS}]"
 
-      DESCRIPTION="## gitlab-enhanced ${CI_COMMIT_TAG}
-
-### Install
-
-**Debian/Ubuntu:**
-\`\`\`bash
-curl -fsSL ${REGISTRY}/${DEB_FILE} -o gitlab-enhanced.deb
-apt install ./gitlab-enhanced.deb
-\`\`\`
-
-**Fedora/RHEL:**
-\`\`\`bash
-curl -fsSL ${REGISTRY}/${RPM_FILE} -o gitlab-enhanced.rpm
-rpm -i gitlab-enhanced.rpm
-\`\`\`
-
-**bdfs-pin-helper** (standalone binary for btrfs-dwarfs-framework):
-\`\`\`bash
-curl -fsSL ${REGISTRY}/bdfs-pin-helper-linux-amd64 -o /usr/local/bin/bdfs-pin-helper
-chmod +x /usr/local/bin/bdfs-pin-helper
-\`\`\`
-
-### Changelog
-See [CHANGELOG.md](${CI_PROJECT_URL}/-/blob/${CI_COMMIT_TAG}/CHANGELOG.md) for details."
+      # Write release description to a temp file to avoid YAML parsing issues
+      # with markdown syntax (**, ```) appearing at column 1 in block scalars.
+      DESC_FILE=$(mktemp)
+      printf '## gitlab-enhanced %s\n\n' "${CI_COMMIT_TAG}" >> "${DESC_FILE}"
+      printf '### Install\n\n' >> "${DESC_FILE}"
+      printf '**Debian/Ubuntu:**\n```bash\n' >> "${DESC_FILE}"
+      printf 'curl -fsSL %s/%s -o gitlab-enhanced.deb\n' "${REGISTRY}" "${DEB_FILE}" >> "${DESC_FILE}"
+      printf 'apt install ./gitlab-enhanced.deb\n```\n\n' >> "${DESC_FILE}"
+      printf '**Fedora/RHEL:**\n```bash\n' >> "${DESC_FILE}"
+      printf 'curl -fsSL %s/%s -o gitlab-enhanced.rpm\n' "${REGISTRY}" "${RPM_FILE}" >> "${DESC_FILE}"
+      printf 'rpm -i gitlab-enhanced.rpm\n```\n\n' >> "${DESC_FILE}"
+      printf '**bdfs-pin-helper** (standalone binary):\n```bash\n' >> "${DESC_FILE}"
+      printf 'curl -fsSL %s/bdfs-pin-helper-linux-amd64 -o /usr/local/bin/bdfs-pin-helper\n' "${REGISTRY}" >> "${DESC_FILE}"
+      printf 'chmod +x /usr/local/bin/bdfs-pin-helper\n```\n\n' >> "${DESC_FILE}"
+      printf '### Changelog\nSee [CHANGELOG.md](%s/-/blob/%s/CHANGELOG.md) for details.\n' \
+        "${CI_PROJECT_URL}" "${CI_COMMIT_TAG}" >> "${DESC_FILE}"
+      DESCRIPTION=$(cat "${DESC_FILE}")
+      rm -f "${DESC_FILE}"
 
       curl -fsSL --request POST \
         --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
