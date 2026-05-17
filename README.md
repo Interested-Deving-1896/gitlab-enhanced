@@ -1,85 +1,75 @@
+[update-readmes]   Mode: rewrite — migrating to template structure...
 # gitlab-enhanced
 
-A unified monorepo combining GitLab packaging, deployment, LFS storage, IPFS transport,
-dev environments, CI acceleration, and developer tooling — local-first by default,
-Incus-native, cloud-optional.
+[![Built with Ona](https://ona.com/build-with-ona.svg)](https://app.ona.com/#https://github.com/Interested-Deving-1896/gitlab-enhanced)
+
+<!-- AI:start:what-it-does -->
+_Description pending._
+<!-- AI:end:what-it-does -->
 
 ## Architecture
 
-```
-gitlab-enhanced/
-├── core/           GitLab packaging (omnibus) + deployment (environment-toolkit)
-├── lfs/            Unified Git LFS layer: servers, clients, adapters
-├── ipfs/           IPFS transport backends for git data and LFS objects
-├── hosting/        SSH-first git server (soft-serve)
-├── ci/             Self-hosted CI acceleration: Blacksmith, Depot, Graphite
-├── environments/   Dev environment layer: OpenVSCode Server, supervisor, workspace images
-├── dev-tools/      KDE developer toolchain
-├── runtime/        Incus profiles, Blincus, K8s-in-Incus
-├── abstraction/    Cross-cutting interfaces: storage, build, runner, environment
-├── deploy/         Local (Incus) and cloud (Terraform/Ansible) deployment
-├── packaging/      Omnibus package definitions
-├── utils/          Shared utilities
-└── config/         Layered configuration (local-first defaults, cloud overlays)
-```
+<!-- AI:start:architecture -->
+_Architecture documentation pending._
+<!-- AI:end:architecture -->
 
-## Principles
+## Install
 
-- **Local-first**: every component runs on a single machine via Incus with no cloud account required
-- **Cloud-secondary**: cloud providers are opt-in overlays, never defaults
-- **No Docker**: Incus replaces Docker throughout — system containers, VMs, OCI-compatible
-- **Modular sources**: upstream projects are git subtrees (owned/forked) or submodules (consumed)
-- **Abstraction layer**: all backends sit behind stable Go interfaces; swapping is a config change
-
-## Quick Start
+<!-- Add installation instructions here. This section is yours — the AI will not modify it. -->
 
 ```bash
-# Prerequisites: Incus 6.0+, Ansible, Go 1.22+
-./deploy/local/bootstrap.sh
+git clone https://github.com/Interested-Deving-1896/gitlab-enhanced.git
+cd gitlab-enhanced
 ```
 
-## Self-hosted CI Runner
+## Usage
 
-To route CI jobs to a local Incus runner instead of GitLab shared runners:
+<!-- Add usage examples here. This section is yours — the AI will not modify it. -->
 
-1. On a Linux host with Incus installed, get a runner token from  
-   **GitLab → Project → Settings → CI/CD → Runners → New project runner**  
-   (set tags: `incus, self-hosted`)
+## Configuration
 
-2. Register in one command:
-   ```bash
-   sudo gitlab-enhanced runner register --token glrt-xxxxxxxxxxxxxxxxxxxx
-   ```
-   This installs the executor scripts and calls `gitlab-runner register` with the
-   correct custom executor flags. See [`runtime/incus/runner/README.md`](runtime/incus/runner/README.md)
-   for options and troubleshooting.
+<!-- Document configuration options here. This section is yours — the AI will not modify it. -->
 
-3. Start the runner:
-   ```bash
-   sudo gitlab-runner start
-   ```
+## CI
 
-4. Optionally pre-bake the CI image for faster cold starts:
-   ```bash
-   bash runtime/incus/images/build-ci-base.sh
-   ```
+<!-- AI:start:ci -->
+_CI documentation pending._
+<!-- AI:end:ci -->
 
-Once the runner is online, the `image:rebuild-ci-base` and `image:rebuild-workspace`
-CI jobs will route to it automatically — no changes to `.gitlab-ci.yml` needed.
+## Mirror chain
 
-## Source Strategy
+<!-- AI:start:mirror-chain -->
+This repo is maintained in [`Interested-Deving-1896/gitlab-enhanced`](https://github.com/Interested-Deving-1896/gitlab-enhanced) and mirrored through:
 
-| Type | Used for | Sync upstream |
-|------|----------|---------------|
-| git subtree | Projects we own or fork | `git subtree pull --prefix=<path> <remote> <branch> --squash` |
-| git submodule | Upstream projects consumed without forking | `git submodule update --remote` |
+```
+Interested-Deving-1896/gitlab-enhanced  ──►  OpenOS-Project-OSP/gitlab-enhanced  ──►  OpenOS-Project-Ecosystem-OOC/gitlab-enhanced
+```
 
-## Docs
+Changes flow downstream automatically via the hourly mirror chain in
+[`fork-sync-all`](https://github.com/Interested-Deving-1896/fork-sync-all).
+Direct commits to OSP or OOC are detected and opened as PRs back to `Interested-Deving-1896`.
+<!-- AI:end:mirror-chain -->
 
-- [Architecture](docs/architecture.md)
-- [Local-first deployment](docs/local-first.md)
-- [Cloud secondary](docs/cloud-secondary.md)
-- [Docker → Incus migration](docs/incus-migration.md)
-- [Contributing](docs/contributing.md)
+## Contributors
 
-[![Build with Ona](https://ona.com/build-with-ona.svg)](https://app.ona.com/#https://gitlab.com/openos-project/git-management_deving/gitlab-enhanced)
+<!-- AI:start:contributors -->
+_Contributors pending._
+<!-- AI:end:contributors -->
+
+## Origins
+
+<!-- AI:start:origins -->
+_No dependency graph found. Run `generate-dep-graph.yml` to generate `dep-graph/origins.md`._
+<!-- AI:end:origins -->
+
+## Resources
+
+<!-- AI:start:resources -->
+_No additional resource files found._
+<!-- AI:end:resources -->
+
+## License
+
+<!-- AI:start:license -->
+<!-- License not detected — add a LICENSE file to this repo. -->
+<!-- AI:end:license -->
