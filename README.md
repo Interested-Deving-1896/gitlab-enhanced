@@ -59,13 +59,20 @@ _Contributors pending._
 ## Origins
 
 <!-- AI:start:origins -->
-_Original project — no upstream fork._
+
+Imported from the OpenOS-Project GitLab — enhanced GitLab tooling for the OSP infrastructure.
+
+| Origin | Host | Fork in I-D-1896 |
+|--------|------|-----------------|
+| [openos-project/git-management_deving/gitlab-enhanced](https://gitlab.com/openos-project/git-management_deving/gitlab-enhanced) | GitLab | ✅ |
 <!-- AI:end:origins -->
 
 ## Resources
 
 <!-- AI:start:resources -->
-_No additional resource files found._
+| File | Description |
+|---|---|
+| [dep-graph/origins.md](https://github.com/Interested-Deving-1896/gitlab-enhanced/blob/main/dep-graph/origins.md) | Dependency graph (Markdown table) |
 <!-- AI:end:resources -->
 
 ## License
