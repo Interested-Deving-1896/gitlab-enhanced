@@ -4,41 +4,42 @@
 [![Built with Ona](https://ona.com/build-with-ona.svg)](https://app.ona.com/#https://github.com/Interested-Deving-1896/gitlab-enhanced)
 
 <!-- AI:start:what-it-does -->
-This project provides an enhanced GitLab management tool designed to streamline repository operations and integrations. It addresses challenges related to repository organization, automation, and external service connectivity. Developers and teams use it to improve workflows and manage GitLab repositories more efficiently.
+This project provides an enhanced GitLab management tool designed to streamline repository operations and workflows. It addresses challenges in managing complex GitLab environments by offering additional functionality and integrations. It is intended for developers and teams who use GitLab for version control and project collaboration.
 <!-- AI:end:what-it-does -->
 
 ## Architecture
 
 <!-- AI:start:architecture -->
-The project is structured as a modular Go application with the following key components:
+The project is structured as a modular Go application with a focus on enhancing GitLab functionality. It consists of several key components:
 
-- **`cmd/`**: Contains the main entry point for the `gitlab-enhanced` binary.
-- **`core/`**: Implements core application logic and shared utilities.
-- **`config/`**: Handles configuration management.
-- **`ipfs/`**: Includes IPFS-related functionality, such as the `dwarfs-pin` module.
-- **`store/`**: Manages data persistence and storage.
-- **`scripts/`**: Contains helper scripts for development and deployment tasks.
-- **`docs/`**: Documentation files for the project.
-- **`ci/`**: Continuous integration configuration and scripts.
-- **`deploy/`**: Deployment-related files and configurations.
+1. **`cmd/gitlab-enhanced`**: Contains the main entry point for the application.
+2. **`core`**: Implements core business logic and shared utilities.
+3. **`ipfs/dwarfs-pin`**: A local module for IPFS-related functionality, replaced in `go.mod` for development purposes.
+4. **`config`**: Manages configuration files and settings.
+5. **`store`**: Handles data persistence and storage operations.
+6. **`scripts`**: Includes helper scripts for development and deployment tasks.
+7. **`docs`**: Documentation files for the project.
+8. **`ci`**: Continuous integration configurations and scripts.
 
-The application uses Go modules for dependency management, as defined in `go.mod`. It relies on external libraries such as `cobra` for CLI functionality and `gocloud.dev` for cloud integrations. The `Makefile` provides common development tasks, including building, testing, linting, and packaging.
+The components interact through clearly defined interfaces, with `core` serving as the central hub for application logic. External dependencies are managed via Go modules, as specified in `go.mod`. The `Makefile` provides common development tasks, including building, testing, and linting.
 
 Directory structure:
 ```plaintext
 .
-├── cmd/                # Main application entry point
-├── core/               # Core logic and utilities
-├── config/             # Configuration management
-├── ipfs/               # IPFS-related modules
-├── store/              # Data persistence
-├── scripts/            # Helper scripts
-├── docs/               # Documentation
-├── ci/                 # CI configuration
-├── deploy/             # Deployment files
-├── go.mod              # Go module dependencies
-├── Makefile            # Build and development tasks
-└── README.md           # Project documentation
+├── cmd/
+│   └── gitlab-enhanced/
+├── core/
+├── config/
+├── store/
+├── ipfs/
+│   └── dwarfs-pin/
+├── scripts/
+├── docs/
+├── ci/
+├── go.mod
+├── go.sum
+├── Makefile
+└── README.md
 ```
 <!-- AI:end:architecture -->
 
