@@ -49,6 +49,10 @@ Configuration is loaded from (later overrides earlier):
 		newRunnerCmd(&cfgRoot),
 		newBuildCmd(&cfgRoot),
 		newStorageCmd(&cfgRoot),
+		newForkCmd(&cfgRoot),
+		newMirrorCmd(&cfgRoot),
+		newOTACmd(&cfgRoot),
+		newTemplateCmd(&cfgRoot),
 	)
 
 	return root
