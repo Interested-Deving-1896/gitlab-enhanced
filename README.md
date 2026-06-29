@@ -4,42 +4,32 @@
 [![Built with Ona](https://ona.com/build-with-ona.svg)](https://app.ona.com/#https://github.com/Interested-Deving-1896/gitlab-enhanced)
 
 <!-- AI:start:what-it-does -->
-This project provides enhanced GitLab management capabilities for developers and teams using GitLab as their version control platform. It addresses challenges related to repository management, integration, and workflow automation. It is implemented in Go and designed to streamline common development tasks and improve collaboration efficiency.
+This project provides an enhanced GitLab management tool designed to streamline repository workflows and integrations. It addresses challenges in repository management by offering features such as automation, dependency handling, and integration with cloud services. It is intended for developers and teams using GitLab who require advanced tooling for efficient project management.
 <!-- AI:end:what-it-does -->
 
 ## Architecture
 
 <!-- AI:start:architecture -->
-The project is structured as a modular Go application with a focus on enhancing GitLab functionality. It consists of several key components:
+The project consists of several key components organized into a modular directory structure. The primary entry point is the `cmd/gitlab-enhanced` package, which defines the main application logic. Core functionality is implemented in the `core` directory, while auxiliary modules such as `ipfs` and `store` provide specialized features like IPFS integration and data storage. Configuration files and deployment scripts are located in `config` and `deploy`, respectively. The `tools` and `scripts` directories contain utilities for development and automation tasks.
 
-1. **`cmd/gitlab-enhanced`**: Contains the main entry point for the application.
-2. **`core`**: Implements core business logic and shared utilities.
-3. **`ipfs/dwarfs-pin`**: A local module for IPFS-related functionality, replaced in `go.mod` for development purposes.
-4. **`config`**: Manages configuration files and settings.
-5. **`store`**: Handles data persistence and storage operations.
-6. **`scripts`**: Includes helper scripts for development and deployment tasks.
-7. **`docs`**: Documentation files for the project.
-8. **`ci`**: Continuous integration configurations and scripts.
-
-The components interact through clearly defined interfaces, with `core` serving as the central hub for application logic. External dependencies are managed via Go modules, as specified in `go.mod`. The `Makefile` provides common development tasks, including building, testing, and linting.
+The components interact through Go modules, with dependencies managed via `go.mod`. The `Makefile` defines common tasks such as building, testing, and linting. The project uses a layered architecture, where high-level commands in `cmd` rely on abstractions and services defined in `core` and other supporting modules.
 
 Directory structure:
 ```plaintext
 .
-├── cmd/
-│   └── gitlab-enhanced/
-├── core/
-├── config/
-├── store/
-├── ipfs/
-│   └── dwarfs-pin/
-├── scripts/
-├── docs/
-├── ci/
-├── go.mod
-├── go.sum
-├── Makefile
-└── README.md
+├── cmd                 # Main application entry points
+│   └── gitlab-enhanced
+├── core                # Core functionality and services
+├── ipfs                # IPFS integration modules
+├── store               # Data storage and persistence
+├── config              # Configuration files
+├── deploy              # Deployment scripts
+├── tools               # Development tools
+├── scripts             # Automation scripts
+├── docs                # Documentation
+├── tests               # Test cases
+├── go.mod              # Go module dependencies
+└── Makefile            # Build and task automation
 ```
 <!-- AI:end:architecture -->
 
@@ -63,11 +53,13 @@ cd gitlab-enhanced
 ## CI
 
 <!-- AI:start:ci -->
-- `build.yml`: Builds the project using the `go build` command. No secrets are required.
-- `test.yml`: Runs unit tests using `go test` with caching disabled. No secrets are required.
-- `lint.yml`: Executes linters (`go vet`, `shellcheck`, `yamllint`) to ensure code quality. No secrets are required.
-- `release.yml`: Builds and packages the project for release. Requires the `GH_TOKEN` secret for publishing assets to GitHub.
-- `integration-tests.yml`: Runs integration tests targeting specific modules. No secrets are required.
+The repository uses GitHub Actions for continuous integration. The following workflows are defined:
+
+1. **`rebase-prs.yml`**: Automatically rebases pull requests when updates are pushed to the base branch.  
+   - **Triggers**: `pull_request` events.  
+   - **Required Secrets**: `GITHUB_TOKEN` (automatically provided by GitHub).  
+
+Ensure the required secrets are configured in the repository settings for the workflows to function correctly.
 <!-- AI:end:ci -->
 
 ## Mirror chain
@@ -87,7 +79,7 @@ Direct commits to OSP or OOC are detected and opened as PRs back to `Interested-
 ## Contributors
 
 <!-- AI:start:contributors -->
-[@Interested-Deving-1896](https://github.com/Interested-Deving-1896): 4 commits
+[@Interested-Deving-1896](https://github.com/Interested-Deving-1896) - 20 commits
 
 *Note: This repository is a mirror. Please refer to the upstream source for additional details.*
 <!-- AI:end:contributors -->
