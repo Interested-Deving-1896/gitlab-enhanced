@@ -10,26 +10,35 @@ This project provides an enhanced GitLab management tool designed to streamline 
 ## Architecture
 
 <!-- AI:start:architecture -->
-The project consists of several key components organized into a modular directory structure. The primary entry point is the `cmd/gitlab-enhanced` package, which defines the main application logic. Core functionality is implemented in the `core` directory, while auxiliary modules such as `ipfs` and `store` provide specialized features like IPFS integration and data storage. Configuration files and deployment scripts are located in `config` and `deploy`, respectively. The `tools` and `scripts` directories contain utilities for development and automation tasks.
+The project is structured as a modular Go application with the following key components:
 
-The components interact through Go modules, with dependencies managed via `go.mod`. The `Makefile` defines common tasks such as building, testing, and linting. The project uses a layered architecture, where high-level commands in `cmd` rely on abstractions and services defined in `core` and other supporting modules.
+- **`cmd/gitlab-enhanced`**: Contains the entry point for the application.
+- **`core`**: Implements core business logic and shared utilities.
+- **`config`**: Manages configuration handling.
+- **`ipfs/dwarfs-pin`**: Provides IPFS-related functionality, included as a local module.
+- **`store`**: Handles data persistence and storage operations.
+- **`scripts`**: Includes helper scripts for development and deployment.
+- **`docs`**: Contains project documentation.
+- **`ci`**: Defines CI/CD workflows and related configurations.
+
+The components interact through well-defined interfaces, ensuring modularity and separation of concerns. External dependencies are managed via Go modules, as defined in `go.mod`. The `Makefile` provides common development tasks, including building, testing, linting, and packaging.
 
 Directory structure:
 ```plaintext
 .
-├── cmd                 # Main application entry points
-│   └── gitlab-enhanced
-├── core                # Core functionality and services
-├── ipfs                # IPFS integration modules
-├── store               # Data storage and persistence
-├── config              # Configuration files
-├── deploy              # Deployment scripts
-├── tools               # Development tools
-├── scripts             # Automation scripts
-├── docs                # Documentation
-├── tests               # Test cases
-├── go.mod              # Go module dependencies
-└── Makefile            # Build and task automation
+├── cmd/
+│   └── gitlab-enhanced/
+├── core/
+├── config/
+├── ipfs/
+│   └── dwarfs-pin/
+├── store/
+├── scripts/
+├── docs/
+├── ci/
+├── go.mod
+├── go.sum
+└── Makefile
 ```
 <!-- AI:end:architecture -->
 
