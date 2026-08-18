@@ -1,7 +1,8 @@
 [update-readmes]   Mode: rewrite — migrating to template structure...
 # gitlab-enhanced
 
-[![Built with Ona](https://ona.com/build-with-ona.svg)](https://app.ona.com/#https://github.com/Interested-Deving-1896/gitlab-enhanced)
+[![Built with Ona](https://ona.com/build-with-ona.svg)](https://app.ona.com/#https://github.com/Interested-Deving-1896/gitlab-enhanced) [![KDE Eco](https://img.shields.io/badge/KDE%20Eco-certified-brightgreen?logo=kde&logoColor=white&style=flat-square)](https://eco.kde.org/) [![Blue Angel](https://img.shields.io/badge/Blue%20Angel-DE--UZ%20215-0055a4?style=flat-square)](https://www.blauer-engel.de/en/certification/criteria) [![Energy](https://api.green-coding.io/v1/ci/badge/get?repo=Interested-Deving-1896%2Fgitlab-enhanced&branch=main&workflow=eco-audit.yml)](https://metrics.green-coding.io/ci-index.html)
+
 
 <!-- AI:start:what-it-does -->
 This project provides an enhanced GitLab management tool designed to streamline repository workflows and integrations. It addresses challenges in repository management by offering features such as automation, dependency handling, and integration with cloud services. It is intended for developers and teams using GitLab who require advanced tooling for efficient project management.
@@ -64,9 +65,9 @@ cd gitlab-enhanced
 <!-- AI:start:ci -->
 The repository uses GitHub Actions for continuous integration. The following workflows are defined:
 
-1. **`rebase-prs.yml`**: Automatically rebases pull requests when updates are pushed to the base branch.  
-   - **Triggers**: `pull_request` events.  
-   - **Required Secrets**: `GITHUB_TOKEN` (automatically provided by GitHub).  
+1. **`rebase-prs.yml`**: Automatically rebases pull requests when updates are pushed to the base branch.
+   - **Triggers**: `pull_request` events.
+   - **Required Secrets**: `GITHUB_TOKEN` (automatically provided by GitHub).
 
 Ensure the required secrets are configured in the repository settings for the workflows to function correctly.
 <!-- AI:end:ci -->
@@ -111,6 +112,20 @@ Imported from the OpenOS-Project GitLab — enhanced GitLab tooling for the OSP 
 |---|---|
 | [dep-graph/origins.md](https://github.com/Interested-Deving-1896/gitlab-enhanced/blob/main/dep-graph/origins.md) | Dependency graph (Markdown table) |
 <!-- AI:end:resources -->
+
+<!-- AI:start:accessibility -->
+This repo uses automated accessibility auditing via `check-accessibility.yml`.
+
+Checks include: CODEOWNERS ownership coverage, README screen-reader compatibility,
+WCAG 2.1 AA HTML compliance, audio overview (espeak-ng), and Braille output (liblouis).
+
+
+
+
+Run the [Check Accessibility](https://github.com/Interested-Deving-1896/gitlab-enhanced/actions/workflows/check-accessibility.yml)
+workflow to generate the first report and accessibility artifacts.
+See [DOCS/accessibility.md](https://github.com/Interested-Deving-1896/gitlab-enhanced/blob/main/DOCS/accessibility.md) for the full reference.
+<!-- AI:end:accessibility -->
 
 ## License
 
