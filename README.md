@@ -114,6 +114,8 @@ Imported from the OpenOS-Project GitLab — enhanced GitLab tooling for the OSP 
 | [dep-graph/origins.md](https://github.com/Interested-Deving-1896/gitlab-enhanced/blob/main/dep-graph/origins.md) | Dependency graph (Markdown table) |
 <!-- AI:end:resources -->
 
+## Accessibility
+
 <!-- AI:start:accessibility -->
 This repo uses automated accessibility auditing via `check-accessibility.yml`.
 
