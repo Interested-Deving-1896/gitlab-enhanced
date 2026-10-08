@@ -798,7 +798,7 @@ workflows:
   cost_high: 150
   basis: code-audit
   notes: Batched exact GraphQL lookups for configured repos + description reads for missing destinations
-  synopsis: Mirrors configured OSP-bound repos from Interested-Deving-1896 to OpenOS-Project-OSP and OpenOS-Project-Ecosystem-OOC using bare clone + push --mirror.
+  synopsis: Mirrors configured OSP-bound repos from Interested-Deving-1896 to Interested-Deving-1896 and Interested-Deving-1896 using bare clone + push --mirror.
 
 - name: Mirror OSP → GitLab
   min_quota: 300
