@@ -90,9 +90,9 @@ Direct commits to OSP or OOC are detected and opened as PRs back to `Interested-
 ## Contributors
 
 <!-- AI:start:contributors -->
-[@Interested-Deving-1896](https://github.com/Interested-Deving-1896): 23 commits
-
-*Note: This repository is a mirror. Please refer to the upstream source for additional contributions and updates.*
+| Contributor | Commits |
+|---|---|
+| [@Interested-Deving-1896](https://github.com/Interested-Deving-1896) | 128 |
 <!-- AI:end:contributors -->
 
 ## Origins
@@ -134,5 +134,5 @@ for the underlying accessibility reference.
 ## License
 
 <!-- AI:start:license -->
-<!-- License not detected — add a LICENSE file to this repo. -->
+[GPL-3.0](https://github.com/Interested-Deving-1896/gitlab-enhanced/blob/main/LICENSE) © 2026 [Interested-Deving-1896](https://github.com/Interested-Deving-1896)
 <!-- AI:end:license -->
